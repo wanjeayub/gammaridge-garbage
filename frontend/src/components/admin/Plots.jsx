@@ -106,7 +106,15 @@ function Plots() {
 
   const handleDelete = (plotId) => {
     if (window.confirm("Are you sure you want to delete this plot?")) {
-      dispatch(deletePlot(plotId));
+      dispatch(deletePlot(plotId))
+        .unwrap()
+        .then(() => {
+          dispatch(getPlots()); // Re-fetch plots
+          toast.success("Plot deleted successfully");
+        })
+        .catch((error) => {
+          toast.error(error.message || "Failed to delete plot");
+        });
     }
   };
 

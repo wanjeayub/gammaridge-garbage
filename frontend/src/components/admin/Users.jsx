@@ -95,7 +95,15 @@ function Users() {
 
   const handleDelete = (userId) => {
     if (window.confirm("Are you sure you want to delete this user?")) {
-      dispatch(deleteUser(userId));
+      dispatch(deleteUser(userId))
+        .unwrap()
+        .then(() => {
+          dispatch(getUsers());
+          toast.success("User deleted successfully");
+        })
+        .catch(() => {
+          toast.error("Failed to delete user");
+        });
     }
   };
 

@@ -68,11 +68,13 @@ function Dashboard() {
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-gray-500">Expected Amount</p>
-                <p className="text-2xl font-bold">${summary.totalExpected}</p>
+                <p className="text-2xl font-bold">
+                  Ksh {summary.totalExpected}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Paid Amount</p>
-                <p className="text-2xl font-bold">${summary.totalPaid}</p>
+                <p className="text-2xl font-bold">Ksh {summary.totalPaid}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Payment Completion</p>

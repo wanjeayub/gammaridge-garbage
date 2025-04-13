@@ -86,9 +86,17 @@ function Locations() {
     }
   };
 
-  const handleDelete = (locationId) => {
+  const handleDelete = async (locationId) => {
     if (window.confirm("Are you sure you want to delete this location?")) {
-      dispatch(deleteLocation(locationId));
+      await dispatch(deleteLocation(locationId))
+        .unwrap()
+        .then(() => {
+          dispatch(getLocations()); // Re-fetch locations
+          toast.success("Plot deleted successfully");
+        })
+        .catch((error) => {
+          toast.error(error.message || "Failed to delete plot");
+        }); // Re-fetch locations
     }
   };
 

@@ -121,7 +121,14 @@ function PaymentManagement() {
     if (
       window.confirm("Are you sure you want to delete this payment schedule?")
     ) {
-      dispatch(deletePayment(paymentId));
+      dispatch(deletePayment(paymentId))
+        .unwrap()
+        .then(() => {
+          toast.success("Payment schedule deleted successfully");
+        })
+        .catch(() => {
+          toast.error("Failed to delete payment schedule");
+        });
     }
   };
 
