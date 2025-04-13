@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_URL = "http://localhost:5000/api/plots";
+const API_URL = "https://tester-server.vercel.app/api/plots";
 
 // Get all plots
 const getPlots = async (token) => {
