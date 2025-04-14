@@ -9,7 +9,14 @@ import {
   reset,
 } from "../../features/users/userSlice";
 import Modal from "react-modal";
-import { FaEdit, FaTrash, FaPlus } from "react-icons/fa";
+import {
+  FaEdit,
+  FaTrash,
+  FaPlus,
+  FaUserShield,
+  FaUserCog,
+  FaUser,
+} from "react-icons/fa";
 
 Modal.setAppElement("#root");
 
@@ -18,10 +25,11 @@ function Users() {
   const { users, isLoading, isError, isSuccess, message } = useSelector(
     (state) => state.users
   );
+  const { user: currentUser } = useSelector((state) => state.auth);
 
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
-  const [currentUser, setCurrentUser] = useState({
+  const [currentUserData, setCurrentUserData] = useState({
     _id: "",
     name: "",
     email: "",
@@ -47,10 +55,27 @@ function Users() {
     dispatch(reset());
   }, [isError, isSuccess, message, dispatch]);
 
+  const canEditUser = (targetUser) => {
+    if (currentUser.role === "superadmin") return true;
+    if (currentUser.role === "admin") {
+      return targetUser.role !== "superadmin";
+    }
+    return false;
+  };
+
+  const canDeleteUser = (targetUser) => {
+    if (targetUser._id === currentUser._id) return false;
+    if (currentUser.role === "superadmin") return true;
+    if (currentUser.role === "admin") {
+      return targetUser.role === "user";
+    }
+    return false;
+  };
+
   const openModal = (user = null) => {
     if (user) {
       setIsEdit(true);
-      setCurrentUser({
+      setCurrentUserData({
         _id: user._id,
         name: user.name,
         email: user.email,
@@ -60,7 +85,7 @@ function Users() {
       });
     } else {
       setIsEdit(false);
-      setCurrentUser({
+      setCurrentUserData({
         _id: "",
         name: "",
         email: "",
@@ -77,33 +102,61 @@ function Users() {
   };
 
   const handleChange = (e) => {
-    setCurrentUser({
-      ...currentUser,
+    setCurrentUserData({
+      ...currentUserData,
       [e.target.name]: e.target.value,
     });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-
     if (isEdit) {
-      dispatch(updateUser({ userId: currentUser._id, userData: currentUser }));
+      dispatch(
+        updateUser({ userId: currentUserData._id, userData: currentUserData })
+      );
     } else {
-      dispatch(createUser(currentUser));
+      dispatch(createUser(currentUserData));
     }
   };
 
-  const handleDelete = (userId) => {
-    if (window.confirm("Are you sure you want to delete this user?")) {
+  const handleDelete = (userId, userRole) => {
+    if (!canDeleteUser({ _id: userId, role: userRole })) {
+      toast.error("You don't have permission to delete this user");
+      return;
+    }
+
+    if (window.confirm(`Are you sure you want to delete this ${userRole}?`)) {
       dispatch(deleteUser(userId))
         .unwrap()
         .then(() => {
           dispatch(getUsers());
           toast.success("User deleted successfully");
         })
-        .catch(() => {
-          toast.error("Failed to delete user");
+        .catch((error) => {
+          toast.error(error.message || "Deletion failed");
         });
+    }
+  };
+
+  const getRoleIcon = (role) => {
+    switch (role) {
+      case "superadmin":
+        return <FaUserShield className="mr-1" />;
+      case "admin":
+        return <FaUserCog className="mr-1" />;
+      default:
+        return <FaUser className="mr-1" />;
+    }
+  };
+
+  const getRoleColor = (role) => {
+    switch (role) {
+      case "superadmin":
+        return "bg-purple-100 text-purple-800";
+      case "admin":
+        return "bg-green-100 text-green-800";
+      default:
+        return "bg-blue-100 text-blue-800";
     }
   };
 
@@ -111,12 +164,14 @@ function Users() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
-        <button
-          onClick={() => openModal()}
-          className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md flex items-center"
-        >
-          <FaPlus className="mr-2" /> Add User
-        </button>
+        {currentUser.role !== "user" && (
+          <button
+            onClick={() => openModal()}
+            className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md flex items-center"
+          >
+            <FaPlus className="mr-2" /> Add User
+          </button>
+        )}
       </div>
 
       <div className="bg-white shadow-md rounded-lg overflow-hidden">
@@ -154,25 +209,42 @@ function Users() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <span
-                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      user.role === "admin"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-blue-100 text-blue-800"
-                    }`}
+                    className={`px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full ${getRoleColor(
+                      user.role
+                    )}`}
                   >
+                    {getRoleIcon(user.role)}
                     {user.role}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <button
                     onClick={() => openModal(user)}
-                    className="text-indigo-600 hover:text-indigo-900 mr-4"
+                    className={`mr-4 ${
+                      canEditUser(user)
+                        ? "text-indigo-600 hover:text-indigo-900"
+                        : "text-gray-400 cursor-not-allowed"
+                    }`}
+                    disabled={!canEditUser(user)}
+                    title={
+                      !canEditUser(user) ? "Editing not permitted" : "Edit user"
+                    }
                   >
                     <FaEdit />
                   </button>
                   <button
-                    onClick={() => handleDelete(user._id)}
-                    className="text-red-600 hover:text-red-900"
+                    onClick={() => handleDelete(user._id, user.role)}
+                    className={
+                      canDeleteUser(user)
+                        ? "text-red-600 hover:text-red-900"
+                        : "text-gray-400 cursor-not-allowed"
+                    }
+                    disabled={!canDeleteUser(user)}
+                    title={
+                      !canDeleteUser(user)
+                        ? "Deletion not permitted"
+                        : "Delete user"
+                    }
                   >
                     <FaTrash />
                   </button>
@@ -206,7 +278,7 @@ function Users() {
                 type="text"
                 id="name"
                 name="name"
-                value={currentUser.name}
+                value={currentUserData.name}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
@@ -223,7 +295,7 @@ function Users() {
                 type="email"
                 id="email"
                 name="email"
-                value={currentUser.email}
+                value={currentUserData.email}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
@@ -240,7 +312,7 @@ function Users() {
                 type="text"
                 id="mobile"
                 name="mobile"
-                value={currentUser.mobile}
+                value={currentUserData.mobile}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
@@ -256,13 +328,17 @@ function Users() {
               <select
                 id="role"
                 name="role"
-                value={currentUser.role}
+                value={currentUserData.role}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
+                disabled={currentUser.role !== "superadmin" && isEdit}
               >
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
+                {currentUser.role === "superadmin" && (
+                  <option value="superadmin">Superadmin</option>
+                )}
               </select>
             </div>
             <div className="mb-4">
@@ -276,7 +352,7 @@ function Users() {
                 type="password"
                 id="password"
                 name="password"
-                value={currentUser.password}
+                value={currentUserData.password}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required={!isEdit}
