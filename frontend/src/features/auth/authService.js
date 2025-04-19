@@ -36,11 +36,26 @@ const logout = () => {
   localStorage.removeItem("user");
 };
 
+// Check token validity
+const checkTokenExpiry = async () => {
+  try {
+    const response = await api.get("/validate-token");
+    return response.data;
+  } catch (error) {
+    // If 401, token is invalid/expired
+    if (error.response?.status === 401) {
+      throw new Error("Token expired or invalid");
+    }
+    throw error;
+  }
+};
+
 const authService = {
   register,
   login,
   getProfile,
   logout,
+  checkTokenExpiry,
 };
 
 export default authService;

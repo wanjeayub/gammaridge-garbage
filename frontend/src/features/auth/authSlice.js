@@ -53,6 +53,25 @@ export const logout = createAsyncThunk("auth/logout", async () => {
   await authService.logout();
 });
 
+// Check token expiry
+export const checkTokenExpiry = createAsyncThunk(
+  "auth/checkTokenExpiry",
+  async (_, thunkAPI) => {
+    try {
+      // Assuming authService has a checkTokenExpiry method
+      return await authService.checkTokenExpiry();
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
 export const authSlice = createSlice({
   name: "auth",
   initialState,
@@ -95,6 +114,11 @@ export const authSlice = createSlice({
         state.user = null;
       })
       .addCase(logout.fulfilled, (state) => {
+        state.user = null;
+      })
+      .addCase(checkTokenExpiry.rejected, (state, action) => {
+        state.isError = true;
+        state.message = action.payload;
         state.user = null;
       });
   },
