@@ -1,32 +1,84 @@
 import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
 import { getMonthlySummary } from "../../features/payments/paymentSlice";
 import { getPlots } from "../../features/plots/plotSlice";
 import { getUsers } from "../../features/users/userSlice";
 import { getLocations } from "../../features/locations/locationSlice";
+import { logout, checkTokenExpiry } from "../../features/auth/authSlice";
 import { toast } from "react-hot-toast";
 
 function Dashboard() {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
   const { summary } = useSelector((state) => state.payments);
   const { plots } = useSelector((state) => state.plots);
   const { users } = useSelector((state) => state.users);
   const { locations } = useSelector((state) => state.locations);
+  const { user, isError, errorMessage } = useSelector((state) => state.auth);
 
+  // Handle logout
+  const handleLogout = () => {
+    dispatch(logout());
+    toast.success("Logged out successfully");
+    navigate("/login");
+  };
+
+  // Check token expiry periodically
   useEffect(() => {
-    const currentDate = new Date();
-    const month = currentDate.toLocaleString("default", { month: "long" });
-    const year = currentDate.getFullYear();
+    const interval = setInterval(() => {
+      dispatch(checkTokenExpiry());
+    }, 300000); // Check every 5 minutes
 
-    dispatch(getMonthlySummary({ month, year }));
-    dispatch(getPlots());
-    dispatch(getUsers());
-    dispatch(getLocations());
+    return () => clearInterval(interval);
   }, [dispatch]);
 
+  // Redirect if not authenticated or token expired
+  useEffect(() => {
+    if (isError && errorMessage.includes("expired")) {
+      toast.error("Session expired. Please login again.");
+      dispatch(logout());
+      navigate("/login");
+    }
+  }, [isError, errorMessage, dispatch, navigate]);
+
+  useEffect(() => {
+    // Only fetch data if user is authenticated
+    if (user) {
+      const currentDate = new Date();
+      const month = currentDate.toLocaleString("default", { month: "long" });
+      const year = currentDate.getFullYear();
+
+      dispatch(getMonthlySummary({ month, year }))
+        .unwrap()
+        .catch((err) => toast.error(err.message));
+      dispatch(getPlots()).catch((err) => toast.error(err.message));
+      dispatch(getUsers()).catch((err) => toast.error(err.message));
+      dispatch(getLocations()).catch((err) => toast.error(err.message));
+    }
+  }, [dispatch, user]);
+
+  // Show loading state if user data is not yet available
+  if (!user) {
+    return <div className="p-6">Loading...</div>;
+  }
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Admin Dashboard</h1>
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-800">Admin Dashboard</h1>
+        <div className="flex items-center space-x-4">
+          <span className="text-sm text-gray-600">
+            Welcome, {user.name || user.email}
+          </span>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow-md">
