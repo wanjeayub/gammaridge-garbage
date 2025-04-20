@@ -16,7 +16,10 @@ import {
   FaPlus,
   FaChevronDown,
   FaChevronUp,
+  FaSearch,
+  FaFilter,
 } from "react-icons/fa";
+import { format } from "date-fns";
 
 Modal.setAppElement("#root");
 
@@ -31,6 +34,7 @@ function PaymentManagement() {
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [expandedLocation, setExpandedLocation] = useState(null);
+  const [expandedPlot, setExpandedPlot] = useState(null);
   const [currentPayment, setCurrentPayment] = useState({
     _id: "",
     expectedAmount: "",
@@ -39,7 +43,8 @@ function PaymentManagement() {
     isPaid: false,
   });
   const [selectedPlot, setSelectedPlot] = useState(null);
-  const [viewPaymentsModalOpen, setViewPaymentsModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   useEffect(() => {
     dispatch(getLocations());
@@ -52,7 +57,7 @@ function PaymentManagement() {
     }
   }, [selectedPlot, dispatch]);
 
-  const openPaymentFormModal = (payment = null) => {
+  const openPaymentFormModal = (payment = null, plot = null) => {
     if (payment) {
       setIsEdit(true);
       setCurrentPayment({
@@ -72,21 +77,24 @@ function PaymentManagement() {
         isPaid: false,
       });
     }
+    if (plot) setSelectedPlot(plot);
     setModalIsOpen(true);
-  };
-
-  const openViewPaymentsModal = (plot) => {
-    setSelectedPlot(plot);
-    setViewPaymentsModalOpen(true);
   };
 
   const closeModal = () => {
     setModalIsOpen(false);
-    setViewPaymentsModalOpen(false);
   };
 
   const toggleLocation = (locationId) => {
     setExpandedLocation(expandedLocation === locationId ? null : locationId);
+  };
+
+  const togglePlot = (plotId) => {
+    setExpandedPlot(expandedPlot === plotId ? null : plotId);
+    if (expandedPlot !== plotId) {
+      const plot = plots.find((p) => p._id === plotId);
+      setSelectedPlot(plot);
+    }
   };
 
   const handleChange = (e) => {
@@ -99,7 +107,6 @@ function PaymentManagement() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-
     const paymentData = {
       plot: selectedPlot._id,
       expectedAmount: currentPayment.expectedAmount,
@@ -109,338 +116,469 @@ function PaymentManagement() {
     };
 
     if (isEdit) {
-      dispatch(updatePayment({ paymentId: currentPayment._id, paymentData }));
+      dispatch(
+        updatePayment({ paymentId: currentPayment._id, paymentData })
+      ).then(() => {
+        toast.success("Payment updated successfully");
+        dispatch(getPaymentsByPlot(selectedPlot._id));
+      });
     } else {
-      dispatch(createPayment(paymentData));
+      dispatch(createPayment(paymentData)).then(() => {
+        toast.success("Payment created successfully");
+        dispatch(getPaymentsByPlot(selectedPlot._id));
+      });
     }
+    closeModal();
   };
 
-  const handleDelete = (paymentId) => {
-    if (
-      window.confirm("Are you sure you want to delete this payment schedule?")
-    ) {
-      dispatch(deletePayment(paymentId))
-        .then(() => {
-          toast.success("Payment schedule deleted successfully");
-          dispatch(getPaymentsByPlot(selectedPlot._id)); // Refresh payments
-        })
-        .catch(() => {
-          toast.error("Failed to delete payment schedule");
-        });
+  const handleDelete = async (paymentId, plotId) => {
+    if (window.confirm("Are you sure you want to delete this payment?")) {
+      try {
+        const result = await dispatch(deletePayment(paymentId));
+
+        if (result.error) {
+          throw result.error;
+        }
+
+        toast.success("Payment deleted successfully");
+
+        if (plotId) {
+          dispatch(getPaymentsByPlot(plotId));
+        }
+      } catch (error) {
+        toast.error(error.message || "Failed to delete payment");
+        console.error("Delete payment error:", error);
+      }
     }
   };
 
   const calculatePlotTotals = (plot) => {
-    if (!plot.paymentSchedules) return { expected: 0, paid: 0 };
-
+    if (!plot.paymentSchedules) return { expected: 0, paid: 0, balance: 0 };
     return plot.paymentSchedules.reduce(
       (totals, payment) => {
         totals.expected += payment.expectedAmount || 0;
         totals.paid += payment.paidAmount || 0;
+        totals.balance = totals.expected - totals.paid;
         return totals;
       },
-      { expected: 0, paid: 0 }
+      { expected: 0, paid: 0, balance: 0 }
     );
+  };
+
+  const filteredLocations = locations.filter((location) => {
+    // Filter by search term
+    const locationMatches = location.name
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+
+    // Filter plots within this location
+    const filteredPlots = plots.filter(
+      (plot) =>
+        plot.location?._id === location._id &&
+        plot.plotNumber.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    return locationMatches || filteredPlots.length > 0;
+  });
+
+  const getPaymentStatus = (payment) => {
+    if (payment.isPaid) return "paid";
+    const dueDate = new Date(payment.dueDate);
+    const today = new Date();
+    return dueDate < today ? "overdue" : "pending";
   };
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">
-        Payment Management by Location
-      </h1>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+        <h1 className="text-3xl font-bold text-gray-800">Payment Management</h1>
+        <div className="mt-4 md:mt-0 flex flex-col sm:flex-row gap-4">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <FaSearch className="text-gray-400" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search locations or plots..."
+              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="relative">
+            <select
+              className="appearance-none pl-3 pr-8 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">All Statuses</option>
+              <option value="paid">Paid</option>
+              <option value="pending">Pending</option>
+              <option value="overdue">Overdue</option>
+            </select>
+            <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+              <FaFilter className="text-gray-400" />
+            </div>
+          </div>
+        </div>
+      </div>
 
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="text-gray-500 text-sm font-medium">Total Expected</h3>
+          <p className="text-2xl font-semibold mt-2">
+            Ksh{" "}
+            {plots
+              .reduce(
+                (sum, plot) => sum + calculatePlotTotals(plot).expected,
+                0
+              )
+              .toLocaleString()}
+          </p>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="text-gray-500 text-sm font-medium">Total Paid</h3>
+          <p className="text-2xl font-semibold mt-2">
+            Ksh{" "}
+            {plots
+              .reduce((sum, plot) => sum + calculatePlotTotals(plot).paid, 0)
+              .toLocaleString()}
+          </p>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="text-gray-500 text-sm font-medium">Total Balance</h3>
+          <p className="text-2xl font-semibold mt-2">
+            Ksh{" "}
+            {plots
+              .reduce((sum, plot) => sum + calculatePlotTotals(plot).balance, 0)
+              .toLocaleString()}
+          </p>
+        </div>
+      </div>
+
+      {/* Location Accordions */}
       <div className="space-y-4">
-        {locations.map((location) => (
+        {filteredLocations.map((location) => (
           <div
             key={location._id}
-            className="bg-white shadow-md rounded-lg overflow-hidden"
+            className="bg-white shadow-sm rounded-xl overflow-hidden border border-gray-100"
           >
             <div
-              className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-50"
+              className="flex justify-between items-center p-5 cursor-pointer hover:bg-gray-50 transition-colors"
               onClick={() => toggleLocation(location._id)}
             >
-              <h2 className="text-lg font-semibold">{location.name}</h2>
-              {expandedLocation === location._id ? (
-                <FaChevronUp className="text-gray-500" />
-              ) : (
-                <FaChevronDown className="text-gray-500" />
-              )}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">
+                  {location.name}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {
+                    plots.filter((plot) => plot.location?._id === location._id)
+                      .length
+                  }{" "}
+                  plots
+                </p>
+              </div>
+              <div className="flex items-center">
+                {expandedLocation === location._id ? (
+                  <FaChevronUp className="text-gray-500" />
+                ) : (
+                  <FaChevronDown className="text-gray-500" />
+                )}
+              </div>
             </div>
 
             {expandedLocation === location._id && (
-              <div className="border-t border-gray-200">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Plot Code
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        User
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Phone
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Expected Total
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Paid Total
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {plots
-                      .filter((plot) => plot.location?._id === location._id)
-                      .map((plot) => {
-                        const totals = calculatePlotTotals(plot);
-                        const firstUser = plot.users?.[0] || {};
+              <div className="border-t border-gray-100">
+                {plots
+                  .filter((plot) => plot.location?._id === location._id)
+                  .map((plot) => {
+                    const totals = calculatePlotTotals(plot);
+                    const firstUser = plot.users?.[0] || {};
+                    const plotPayments = payments.filter(
+                      (payment) => payment.plot === plot._id
+                    );
 
-                        return (
-                          <tr key={plot._id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {plot.plotNumber}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {firstUser.name || "No user assigned"}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {firstUser.mobile || "-"}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              Ksh {totals.expected.toLocaleString()}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              Ksh {totals.paid.toLocaleString()}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button
-                                onClick={() => openViewPaymentsModal(plot)}
-                                className="text-indigo-600 hover:text-indigo-900 mr-4"
-                                title="View Payment Schedules"
+                    return (
+                      <div
+                        key={plot._id}
+                        className="border-b border-gray-100 last:border-b-0"
+                      >
+                        <div
+                          className="flex flex-col sm:flex-row sm:items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                          onClick={() => togglePlot(plot._id)}
+                        >
+                          <div className="flex items-center space-x-4">
+                            <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                              <span className="text-blue-600 font-medium">
+                                {plot.plotNumber}
+                              </span>
+                            </div>
+                            <div>
+                              <h3 className="font-medium text-gray-800">
+                                {firstUser.name || "No user assigned"}
+                              </h3>
+                              <p className="text-sm text-gray-500">
+                                {firstUser.mobile || "-"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-3 sm:mt-0 flex flex-col sm:flex-row sm:items-center sm:space-x-6">
+                            <div className="text-right">
+                              <p className="text-sm text-gray-500">Expected</p>
+                              <p className="font-medium">
+                                Ksh {totals.expected.toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm text-gray-500">Paid</p>
+                              <p className="font-medium">
+                                Ksh {totals.paid.toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm text-gray-500">Balance</p>
+                              <p
+                                className={`font-medium ${
+                                  totals.balance > 0
+                                    ? "text-red-600"
+                                    : "text-green-600"
+                                }`}
                               >
-                                <FaEdit />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedPlot(plot);
-                                  openPaymentFormModal();
-                                }}
-                                className="text-primary-600 hover:text-primary-900"
-                                title="Add Payment Schedule"
-                              >
-                                <FaPlus />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
+                                Ksh {totals.balance.toLocaleString()}
+                              </p>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openPaymentFormModal(null, plot);
+                              }}
+                              className="mt-2 sm:mt-0 px-3 py-1 bg-blue-600 text-white rounded-lg text-sm flex items-center space-x-1 hover:bg-blue-700 transition-colors"
+                            >
+                              <FaPlus className="w-3 h-3" />
+                              <span>Add Payment</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {expandedPlot === plot._id && (
+                          <div className="bg-gray-50 p-4">
+                            <h4 className="text-sm font-medium text-gray-500 mb-3">
+                              Payment Schedule
+                            </h4>
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                <thead>
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      Due Date
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      Expected
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      Paid
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      Status
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      Actions
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                  {plotPayments.map((payment) => {
+                                    const status = getPaymentStatus(payment);
+                                    return (
+                                      <tr key={payment._id}>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                          {format(
+                                            new Date(payment.dueDate),
+                                            "MMM dd, yyyy"
+                                          )}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                          Ksh{" "}
+                                          {payment.expectedAmount.toLocaleString()}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                          Ksh{" "}
+                                          {payment.paidAmount.toLocaleString()}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                          <span
+                                            className={`px-2 py-1 inline-flex text-xs leading-4 font-medium rounded-full ${
+                                              status === "paid"
+                                                ? "bg-green-100 text-green-800"
+                                                : status === "overdue"
+                                                ? "bg-red-100 text-red-800"
+                                                : "bg-yellow-100 text-yellow-800"
+                                            }`}
+                                          >
+                                            {status === "paid"
+                                              ? "Paid"
+                                              : status === "overdue"
+                                              ? "Overdue"
+                                              : "Pending"}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                                          <div className="flex items-center space-x-2">
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openPaymentFormModal(
+                                                  payment,
+                                                  plot
+                                                );
+                                              }}
+                                              className="p-1.5 text-blue-600 hover:text-blue-900 rounded-md hover:bg-blue-50 transition-colors"
+                                              title="Edit payment"
+                                            >
+                                              <FaEdit className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDelete(
+                                                  payment._id,
+                                                  selectedPlot._id
+                                                );
+                                              }}
+                                              className="p-1.5 text-red-600 hover:text-red-900 rounded-md hover:bg-red-50 transition-colors"
+                                              title="Delete payment"
+                                            >
+                                              <FaTrash className="w-4 h-4" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </div>
         ))}
       </div>
 
-      {/* Add/Edit Payment Modal */}
+      {/* Payment Form Modal */}
       <Modal
         isOpen={modalIsOpen}
         onRequestClose={closeModal}
-        contentLabel="Payment Form Modal"
+        contentLabel="Payment Form"
         className="modal"
-        overlayClassName="modal-overlay"
+        overlayClassName="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4"
       >
-        <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-          <h2 className="text-xl font-semibold mb-4">
-            {isEdit ? "Edit Payment" : "Add Payment"}
-          </h2>
+        <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-800">
+              {isEdit ? "Edit Payment" : "Add Payment Schedule"}
+            </h2>
+            <button
+              onClick={closeModal}
+              className="text-gray-400 hover:text-gray-500"
+            >
+              &times;
+            </button>
+          </div>
+
           {selectedPlot && (
-            <p className="text-sm text-gray-600 mb-4">
-              For Plot: {selectedPlot.plotNumber} ({selectedPlot.location?.name}
-              )
-            </p>
+            <div className="bg-blue-50 p-3 rounded-lg mb-4">
+              <p className="text-sm font-medium text-blue-800">
+                Plot: {selectedPlot.plotNumber} ({selectedPlot.location?.name})
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                User: {selectedPlot.users?.[0]?.name || "Not assigned"}
+              </p>
+            </div>
           )}
+
           <form onSubmit={handleSubmit}>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Expected Amount
-              </label>
-              <input
-                type="number"
-                name="expectedAmount"
-                value={currentPayment.expectedAmount}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-                min="0"
-                step="0.01"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Expected Amount (Ksh)
+                </label>
+                <input
+                  type="number"
+                  name="expectedAmount"
+                  value={currentPayment.expectedAmount}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Paid Amount (Ksh)
+                </label>
+                <input
+                  type="number"
+                  name="paidAmount"
+                  value={currentPayment.paidAmount}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Due Date
+                </label>
+                <input
+                  type="date"
+                  name="dueDate"
+                  value={currentPayment.dueDate}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  name="isPaid"
+                  checked={currentPayment.isPaid}
+                  onChange={handleChange}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label className="ml-2 block text-sm text-gray-900">
+                  Mark as Paid
+                </label>
+              </div>
             </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Paid Amount
-              </label>
-              <input
-                type="number"
-                name="paidAmount"
-                value={currentPayment.paidAmount}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-                min="0"
-                step="0.01"
-              />
-            </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Due Date
-              </label>
-              <input
-                type="date"
-                name="dueDate"
-                value={currentPayment.dueDate}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-              />
-            </div>
-            <div className="mb-4 flex items-center">
-              <input
-                type="checkbox"
-                name="isPaid"
-                checked={currentPayment.isPaid}
-                onChange={handleChange}
-                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-              />
-              <label className="ml-2 block text-sm text-gray-900">
-                Mark as Paid
-              </label>
-            </div>
-            <div className="flex justify-end space-x-3">
+
+            <div className="mt-6 flex justify-end space-x-3">
               <button
                 type="button"
                 onClick={closeModal}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70"
               >
-                {isLoading ? "Saving..." : "Save"}
+                {isLoading ? "Saving..." : "Save Payment"}
               </button>
             </div>
           </form>
-        </div>
-      </Modal>
-
-      {/* View Payments Modal */}
-      <Modal
-        isOpen={viewPaymentsModalOpen}
-        onRequestClose={closeModal}
-        contentLabel="Payment Schedules Modal"
-        className="modal"
-        overlayClassName="modal-overlay"
-      >
-        <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">
-              Payment Schedules for Plot {selectedPlot?.plotNumber}
-            </h2>
-            <button
-              onClick={closeModal}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="mb-4">
-            <button
-              onClick={() => {
-                openPaymentFormModal();
-                setViewPaymentsModalOpen(false);
-              }}
-              className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md flex items-center"
-            >
-              <FaPlus className="mr-2" /> Add Payment Schedule
-            </button>
-          </div>
-
-          <div className="bg-white shadow-md rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Expected Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Paid Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Due Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {payments
-                  .filter((payment) => payment.plot === selectedPlot?._id)
-                  .map((payment) => (
-                    <tr key={payment._id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        Ksh {payment.expectedAmount}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        Ksh {payment.paidAmount}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(payment.dueDate).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span
-                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            payment.isPaid
-                              ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {payment.isPaid ? "Paid" : "Unpaid"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button
-                          onClick={() => {
-                            openPaymentFormModal(payment);
-                            setViewPaymentsModalOpen(false);
-                          }}
-                          className="text-indigo-600 hover:text-indigo-900 mr-4"
-                        >
-                          <FaEdit />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(payment._id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          <FaTrash />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       </Modal>
     </div>

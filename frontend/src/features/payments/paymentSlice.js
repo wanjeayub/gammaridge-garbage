@@ -185,7 +185,7 @@ export const paymentSlice = createSlice({
         state.isLoading = false;
         state.isSuccess = true;
         state.payments = state.payments.filter(
-          (payment) => payment._id !== action.payload.id
+          (payment) => payment._id !== action.meta.arg
         );
       })
       .addCase(deletePayment.rejected, (state, action) => {

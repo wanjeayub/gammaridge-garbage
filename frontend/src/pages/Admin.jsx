@@ -30,6 +30,7 @@ function Admin() {
     { name: "Plots", path: "/admin/plots" },
     { name: "Assign Households", path: "/admin/assign" },
     { name: "Payment Schedules", path: "/admin/payments" },
+    { name: "Plots Debug", path: "/admin/debug" },
     { name: "Reports", path: "/admin/reports" },
   ];
 

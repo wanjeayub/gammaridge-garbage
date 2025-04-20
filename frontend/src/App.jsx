@@ -18,6 +18,7 @@ import AdminReports from "./components/admin/Reports";
 import UserDashboard from "./components/user/Dashboard";
 import UserProfile from "./components/user/Profile";
 import UserPayments from "./components/user/Payments";
+import PlotDebug from "./components/admin/PlotsDebug";
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
           <Route path="locations" element={<AdminLocations />} />
           <Route path="plots" element={<AdminPlots />} />
           <Route path="assign" element={<AdminAssignHouseholds />} />
+          <Route path="debug" element={<PlotDebug />} />
           <Route path="payments" element={<AdminPayments />} />
           <Route path="reports" element={<AdminReports />} />
         </Route>

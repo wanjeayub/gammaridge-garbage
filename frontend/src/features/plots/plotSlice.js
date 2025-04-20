@@ -124,6 +124,8 @@ export const plotSlice = createSlice({
         state.isLoading = false;
         state.isSuccess = true;
         state.plots = action.payload;
+        // Ensure users data is fresh
+        state.users = action.payload.map((plot) => plot.users).flat();
       })
       .addCase(getPlots.rejected, (state, action) => {
         state.isLoading = false;
