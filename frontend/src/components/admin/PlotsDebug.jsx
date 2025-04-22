@@ -6,8 +6,12 @@ import {
   createPlot,
   updatePlot,
   deletePlot,
+  assignUsersToPlot,
+  addUsersToPlot,
+  removeUserFromPlot,
   reset,
 } from "../../features/plots/plotSlice";
+import { createUser } from "../../features/users/userSlice";
 import { getLocations } from "../../features/locations/locationSlice";
 import { getUsers } from "../../features/users/userSlice";
 import Modal from "react-modal";
@@ -16,10 +20,7 @@ import {
   FaTrash,
   FaPlus,
   FaUsers,
-  FaEye,
-  FaEyeSlash,
   FaSearch,
-  FaFilter,
   FaTimes,
   FaChartBar,
   FaUserPlus,
@@ -76,6 +77,7 @@ function PlotDebug() {
     plotNumber: "",
     bagsRequired: "",
     location: "",
+    users: [],
   });
   const [newUser, setNewUser] = useState({
     name: "",
@@ -83,20 +85,26 @@ function PlotDebug() {
     mobile: "",
   });
 
+  // Fetch initial data
   useEffect(() => {
-    dispatch(getPlots());
-    dispatch(getLocations());
-    dispatch(getUsers());
+    const fetchData = async () => {
+      await Promise.all([
+        dispatch(getPlots()),
+        dispatch(getLocations()),
+        dispatch(getUsers()),
+      ]);
+    };
+    fetchData();
   }, [dispatch]);
 
+  // Handle messages and errors
   useEffect(() => {
     if (isError) {
       toast.error(message);
     }
 
-    if (isSuccess) {
-      toast.success(message || "Operation successful");
-      closeModal();
+    if (isSuccess && message) {
+      toast.success(message);
     }
 
     dispatch(reset());
@@ -126,7 +134,7 @@ function PlotDebug() {
     return acc;
   }, []);
 
-  // Available users are those not assigned to any plot
+  // Available users are those not assigned to any plot and not admin/current user
   const availableUsers = users.filter((user) => {
     return (
       !assignedUserIds.includes(user._id) &&
@@ -154,7 +162,7 @@ function PlotDebug() {
     totalBags: plots.reduce((sum, plot) => sum + (plot.bagsRequired || 0), 0),
   };
 
-  // Open modal for plot editing/creation
+  // Modal handlers
   const openModal = (plot = null) => {
     if (plot) {
       setIsEdit(true);
@@ -163,6 +171,7 @@ function PlotDebug() {
         plotNumber: plot.plotNumber,
         bagsRequired: plot.bagsRequired,
         location: plot.location?._id || "",
+        users: plot.users || [],
       });
     } else {
       setIsEdit(false);
@@ -171,12 +180,12 @@ function PlotDebug() {
         plotNumber: "",
         bagsRequired: "",
         location: locations.length > 0 ? locations[0]._id : "",
+        users: [],
       });
     }
     setModalIsOpen(true);
   };
 
-  // Open modal for user assignment
   const openAssignModal = (plot) => {
     setCurrentPlot({
       _id: plot._id,
@@ -186,7 +195,6 @@ function PlotDebug() {
     setAssignModalIsOpen(true);
   };
 
-  // Open modal for new user creation
   const openUserModal = (plot) => {
     setCurrentPlot({
       _id: plot._id,
@@ -200,12 +208,11 @@ function PlotDebug() {
     setUserModalIsOpen(true);
   };
 
-  // Close all modals
   const closeModal = () => setModalIsOpen(false);
   const closeAssignModal = () => setAssignModalIsOpen(false);
   const closeUserModal = () => setUserModalIsOpen(false);
 
-  // Handle form changes
+  // Form handlers
   const handleChange = (e) => {
     setCurrentPlot({
       ...currentPlot,
@@ -220,8 +227,8 @@ function PlotDebug() {
     });
   };
 
-  // Submit plot form
-  const handleSubmit = (e) => {
+  // Plot CRUD operations
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const plotData = {
       plotNumber: currentPlot.plotNumber,
@@ -229,14 +236,21 @@ function PlotDebug() {
       location: currentPlot.location,
     };
 
-    if (isEdit) {
-      dispatch(updatePlot({ plotId: currentPlot._id, plotData }));
-    } else {
-      dispatch(createPlot(plotData));
+    try {
+      if (isEdit) {
+        await dispatch(
+          updatePlot({ plotId: currentPlot._id, plotData })
+        ).unwrap();
+      } else {
+        await dispatch(createPlot(plotData)).unwrap();
+      }
+      dispatch(getPlots());
+      closeModal();
+    } catch (error) {
+      toast.error(error.message || "Operation failed");
     }
   };
 
-  // Delete a plot
   const handleDelete = (plotId) => {
     toast.custom((t) => (
       <div
@@ -256,17 +270,16 @@ function PlotDebug() {
             Cancel
           </button>
           <button
-            onClick={() => {
-              dispatch(deletePlot(plotId))
-                .then(() => {
-                  dispatch(getPlots());
-                  toast.success("Plot deleted successfully");
-                  toast.dismiss(t.id);
-                })
-                .catch((error) => {
-                  toast.error(error.message || "Failed to delete plot");
-                  toast.dismiss(t.id);
-                });
+            onClick={async () => {
+              try {
+                await dispatch(deletePlot(plotId)).unwrap();
+                dispatch(getPlots());
+                toast.success("Plot deleted successfully");
+                toast.dismiss(t.id);
+              } catch (error) {
+                toast.error(error.message || "Failed to delete plot");
+                toast.dismiss(t.id);
+              }
             }}
             className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
           >
@@ -277,63 +290,81 @@ function PlotDebug() {
     ));
   };
 
-  // Remove user from plot
-  const removeUserFromPlot = (plotId, userId) => {
-    const plot = plots.find((p) => p._id === plotId);
-    if (!plot) return;
-
-    const updatedUsers = plot.users.filter(
-      (user) => (typeof user === "object" ? user._id : user) !== userId
-    );
-
-    dispatch(
-      updatePlot({
-        plotId,
-        plotData: { users: updatedUsers },
-      })
-    ).then(() => {
-      toast.success("User removed from plot successfully");
-      dispatch(getPlots());
-    });
+  // User assignment operations
+  const handleAssignUsers = async (userIds) => {
+    try {
+      await dispatch(
+        assignUsersToPlot({
+          plotId: currentPlot._id,
+          userIds,
+        })
+      ).unwrap();
+      await Promise.all([dispatch(getPlots()), dispatch(getUsers())]);
+      toast.success("Users assigned successfully");
+      closeAssignModal();
+    } catch (error) {
+      toast.error(error.message || "Failed to assign users");
+    }
   };
 
-  // Add new user to plot
-  const addNewUserToPlot = (e) => {
+  const addNewUserToPlot = async (e) => {
     e.preventDefault();
+    try {
+      // First create the user
+      const userResponse = await dispatch(
+        createUser({
+          ...newUser,
+          password: "defaultPassword", // In production, generate a secure password
+          role: "user",
+        })
+      ).unwrap();
 
-    // In a real app, you would dispatch an action to create the user first
-    // Then add them to the plot. Here we'll simulate it by adding to local state
+      // Then add to plot
+      await dispatch(
+        addUsersToPlot({
+          plotId: currentPlot._id,
+          userIds: [userResponse._id],
+        })
+      ).unwrap();
 
-    const newUserId = `temp-${Date.now()}`;
-    const updatedUsers = [
-      ...(currentPlot.users || []),
-      {
-        _id: newUserId,
-        ...newUser,
-      },
-    ];
-
-    dispatch(
-      updatePlot({
-        plotId: currentPlot._id,
-        plotData: { users: updatedUsers },
-      })
-    ).then(() => {
-      toast.success("New user added to plot successfully");
-      dispatch(getPlots());
+      await Promise.all([dispatch(getPlots()), dispatch(getUsers())]);
+      toast.success("New user created and added to plot");
       closeUserModal();
-    });
+    } catch (error) {
+      toast.error(error.message || "Failed to add new user");
+    }
+  };
+
+  const removeUserFromPlotHandler = async (plotId, userId) => {
+    try {
+      await dispatch(
+        removeUserFromPlot({
+          plotId,
+          userId,
+        })
+      ).unwrap();
+      await Promise.all([dispatch(getPlots()), dispatch(getUsers())]);
+      toast.success("User removed from plot");
+    } catch (error) {
+      toast.error(error.message || "Failed to remove user");
+    }
+  };
+
+  // Helper to get clean user IDs from plot users
+  const getPlotUserIds = (plotUsers) => {
+    return (plotUsers || []).map((user) =>
+      typeof user === "object" ? user._id : user
+    );
   };
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Header and Search */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">
-            Plot Debug Dashboard
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-800">Plot Management</h1>
           <p className="text-gray-500 mt-1">
-            Detailed view and management of all plots
+            Manage and assign users to planting plots
           </p>
         </div>
 
@@ -389,6 +420,7 @@ function PlotDebug() {
         </div>
       </div>
 
+      {/* Tabs */}
       <Tabs>
         <TabList className="flex border-b border-gray-200">
           <Tab className="px-4 py-2 font-medium text-sm cursor-pointer focus:outline-none border-b-2 border-transparent data-[selected=true]:border-blue-500 data-[selected=true]:text-blue-600">
@@ -399,6 +431,7 @@ function PlotDebug() {
           </Tab>
         </TabList>
 
+        {/* Detailed View Tab */}
         <TabPanel>
           {filteredPlots.length === 0 ? (
             <motion.div
@@ -496,11 +529,7 @@ function PlotDebug() {
 
                                   return (
                                     <div
-                                      key={
-                                        typeof user === "object"
-                                          ? user._id
-                                          : user
-                                      }
+                                      key={userObj._id}
                                       className="flex items-center justify-between group"
                                     >
                                       <div className="inline-flex items-center bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs">
@@ -513,11 +542,9 @@ function PlotDebug() {
                                       </div>
                                       <button
                                         onClick={() =>
-                                          removeUserFromPlot(
+                                          removeUserFromPlotHandler(
                                             plot._id,
-                                            typeof user === "object"
-                                              ? user._id
-                                              : user
+                                            userObj._id
                                           )
                                         }
                                         className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 ml-2 transition-opacity"
@@ -577,6 +604,7 @@ function PlotDebug() {
           )}
         </TabPanel>
 
+        {/* Summary Statistics Tab */}
         <TabPanel>
           <div className="bg-white rounded-lg shadow-sm p-6">
             <h2 className="text-xl font-semibold mb-4 flex items-center">
@@ -585,82 +613,71 @@ function PlotDebug() {
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                <h3 className="text-sm font-medium text-blue-800">
-                  Total Plots
-                </h3>
-                <p className="text-2xl font-bold text-blue-600 mt-1">
-                  {summaryStats.totalPlots}
-                </p>
-              </div>
-
-              <div className="bg-green-50 p-4 rounded-lg border border-green-100">
-                <h3 className="text-sm font-medium text-green-800">
-                  Assigned Plots
-                </h3>
-                <p className="text-2xl font-bold text-green-600 mt-1">
-                  {summaryStats.assignedPlots}
-                </p>
-                <p className="text-xs text-green-500 mt-1">
-                  {(
+              {/* Statistics Cards */}
+              {[
+                {
+                  title: "Total Plots",
+                  value: summaryStats.totalPlots,
+                  bg: "blue",
+                },
+                {
+                  title: "Assigned Plots",
+                  value: summaryStats.assignedPlots,
+                  percent: (
                     (summaryStats.assignedPlots / summaryStats.totalPlots) *
                       100 || 0
-                  ).toFixed(1)}
-                  % of total
-                </p>
-              </div>
-
-              <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                <h3 className="text-sm font-medium text-purple-800">
-                  Unassigned Plots
-                </h3>
-                <p className="text-2xl font-bold text-purple-600 mt-1">
-                  {summaryStats.unassignedPlots}
-                </p>
-                <p className="text-xs text-purple-500 mt-1">
-                  {(
+                  ).toFixed(1),
+                  bg: "green",
+                },
+                {
+                  title: "Unassigned Plots",
+                  value: summaryStats.unassignedPlots,
+                  percent: (
                     (summaryStats.unassignedPlots / summaryStats.totalPlots) *
                       100 || 0
-                  ).toFixed(1)}
-                  % of total
-                </p>
-              </div>
-
-              <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100">
-                <h3 className="text-sm font-medium text-yellow-800">
-                  Total Users
-                </h3>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">
-                  {summaryStats.totalUsers}
-                </p>
-              </div>
-
-              <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                <h3 className="text-sm font-medium text-indigo-800">
-                  Assigned Users
-                </h3>
-                <p className="text-2xl font-bold text-indigo-600 mt-1">
-                  {summaryStats.assignedUsers}
-                </p>
-                <p className="text-xs text-indigo-500 mt-1">
-                  {(
+                  ).toFixed(1),
+                  bg: "purple",
+                },
+                {
+                  title: "Total Users",
+                  value: summaryStats.totalUsers,
+                  bg: "yellow",
+                },
+                {
+                  title: "Assigned Users",
+                  value: summaryStats.assignedUsers,
+                  percent: (
                     (summaryStats.assignedUsers / summaryStats.totalUsers) *
                       100 || 0
-                  ).toFixed(1)}
-                  % of total
-                </p>
-              </div>
-
-              <div className="bg-red-50 p-4 rounded-lg border border-red-100">
-                <h3 className="text-sm font-medium text-red-800">
-                  Total Bags Required
-                </h3>
-                <p className="text-2xl font-bold text-red-600 mt-1">
-                  {summaryStats.totalBags}
-                </p>
-              </div>
+                  ).toFixed(1),
+                  bg: "indigo",
+                },
+                {
+                  title: "Total Bags Required",
+                  value: summaryStats.totalBags,
+                  bg: "red",
+                },
+              ].map((stat, index) => (
+                <div
+                  key={index}
+                  className={`bg-${stat.bg}-50 p-4 rounded-lg border border-${stat.bg}-100`}
+                >
+                  <h3 className={`text-sm font-medium text-${stat.bg}-800`}>
+                    {stat.title}
+                  </h3>
+                  <p className={`text-2xl font-bold text-${stat.bg}-600 mt-1`}>
+                    {stat.value}
+                  </p>
+                  {stat.percent && (
+                    <p className={`text-xs text-${stat.bg}-500 mt-1`}>
+                      {stat.percent}% of total
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
 
+            {/* Locations Summary Table */}
             <h3 className="text-lg font-medium mb-3">Locations Summary</h3>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -919,7 +936,6 @@ function PlotDebug() {
                       >
                         <input
                           type="checkbox"
-                          id={`user-${user._id}`}
                           checked={currentPlot.users?.some(
                             (u) =>
                               (typeof u === "object" ? u._id : u) === user._id
@@ -953,21 +969,9 @@ function PlotDebug() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      dispatch(
-                        updatePlot({
-                          plotId: currentPlot._id,
-                          plotData: {
-                            users: currentPlot.users?.map((u) =>
-                              typeof u === "object" ? u._id : u
-                            ),
-                          },
-                        })
-                      ).then(() => {
-                        toast.success("Users assigned successfully");
-                        closeAssignModal();
-                      });
-                    }}
+                    onClick={() =>
+                      handleAssignUsers(getPlotUserIds(currentPlot.users))
+                    }
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                   >
                     Save Assignments

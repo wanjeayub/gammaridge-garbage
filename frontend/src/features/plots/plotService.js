@@ -46,6 +46,21 @@ const deletePlot = async (plotId, token) => {
   return response.data;
 };
 
+// Add users to plot (incremental)
+const addUsersToPlot = async (plotId, userIds, token) => {
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+  const response = await axios.put(
+    `${API_URL}/${plotId}/add-users`,
+    { userIds },
+    config
+  );
+  return response.data;
+};
+
 // Assign users to plot
 const assignUsersToPlot = async (plotId, userIds, token) => {
   const config = {
@@ -61,12 +76,29 @@ const assignUsersToPlot = async (plotId, userIds, token) => {
   return response.data;
 };
 
+// Remove user from plot
+const removeUserFromPlot = async (plotId, userId, token) => {
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+  const response = await axios.put(
+    `${API_URL}/${plotId}/remove-user`,
+    { userId },
+    config
+  );
+  return response.data;
+};
+
 const plotService = {
   getPlots,
   createPlot,
   updatePlot,
   deletePlot,
+  addUsersToPlot,
   assignUsersToPlot,
+  removeUserFromPlot,
 };
 
 export default plotService;

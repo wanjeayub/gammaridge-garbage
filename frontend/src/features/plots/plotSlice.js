@@ -9,7 +9,7 @@ const initialState = {
   message: "",
 };
 
-// Get all plots
+// Async Thunks
 export const getPlots = createAsyncThunk(
   "plots/getAll",
   async (_, thunkAPI) => {
@@ -17,18 +17,11 @@ export const getPlots = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await plotService.getPlots(token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
   }
 );
 
-// Create plot
 export const createPlot = createAsyncThunk(
   "plots/create",
   async (plotData, thunkAPI) => {
@@ -36,18 +29,11 @@ export const createPlot = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await plotService.createPlot(plotData, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
   }
 );
 
-// Update plot
 export const updatePlot = createAsyncThunk(
   "plots/update",
   async ({ plotId, plotData }, thunkAPI) => {
@@ -55,18 +41,11 @@ export const updatePlot = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await plotService.updatePlot(plotId, plotData, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
   }
 );
 
-// Delete plot
 export const deletePlot = createAsyncThunk(
   "plots/delete",
   async (plotId, thunkAPI) => {
@@ -74,18 +53,11 @@ export const deletePlot = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await plotService.deletePlot(plotId, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
   }
 );
 
-// Assign users to plot
 export const assignUsersToPlot = createAsyncThunk(
   "plots/assignUsers",
   async ({ plotId, userIds }, thunkAPI) => {
@@ -93,16 +65,47 @@ export const assignUsersToPlot = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await plotService.assignUsersToPlot(plotId, userIds, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
   }
 );
+
+export const removeUserFromPlot = createAsyncThunk(
+  "plots/removeUser",
+  async ({ plotId, userId }, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user.token;
+      return await plotService.removeUserFromPlot(plotId, userId, token);
+    } catch (error) {
+      return thunkAPI.rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+export const addUsersToPlot = createAsyncThunk(
+  "plots/addUsers",
+  async ({ plotId, userIds }, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user.token;
+      return await plotService.addUsersToPlot(plotId, userIds, token);
+    } catch (error) {
+      return thunkAPI.rejectWithValue(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to add users to plot"
+      );
+    }
+  }
+);
+
+// Helper function for error messages
+const getErrorMessage = (error) => {
+  return (
+    (error.response && error.response.data && error.response.data.message) ||
+    error.message ||
+    error.toString()
+  );
+};
 
 export const plotSlice = createSlice({
   name: "plots",
@@ -117,36 +120,17 @@ export const plotSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(getPlots.pending, (state) => {
-        state.isLoading = true;
-      })
+
+      // Specific cases
       .addCase(getPlots.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isSuccess = true;
         state.plots = action.payload;
-        // Ensure users data is fresh
-        state.users = action.payload.map((plot) => plot.users).flat();
-      })
-      .addCase(getPlots.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
-      })
-      .addCase(createPlot.pending, (state) => {
-        state.isLoading = true;
       })
       .addCase(createPlot.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isSuccess = true;
         state.plots.push(action.payload);
-      })
-      .addCase(createPlot.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
-      })
-      .addCase(updatePlot.pending, (state) => {
-        state.isLoading = true;
       })
       .addCase(updatePlot.fulfilled, (state, action) => {
         state.isLoading = false;
@@ -155,14 +139,6 @@ export const plotSlice = createSlice({
           plot._id === action.payload._id ? action.payload : plot
         );
       })
-      .addCase(updatePlot.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
-      })
-      .addCase(deletePlot.pending, (state) => {
-        state.isLoading = true;
-      })
       .addCase(deletePlot.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isSuccess = true;
@@ -170,27 +146,53 @@ export const plotSlice = createSlice({
           (plot) => plot._id !== action.payload.id
         );
       })
-      .addCase(deletePlot.rejected, (state, action) => {
+      .addCase(addUsersToPlot.pending, (state) => {
+        state.isLoading = true;
+        state.isSuccess = false;
+        state.isError = false;
+        state.message = "";
+      })
+      .addCase(addUsersToPlot.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.plots = state.plots.map((plot) =>
+          plot._id === action.payload._id ? action.payload : plot
+        );
+        state.message = "Users added to plot successfully";
+      })
+      .addCase(addUsersToPlot.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;
-      })
-      .addCase(assignUsersToPlot.pending, (state) => {
-        state.isLoading = true;
       })
       .addCase(assignUsersToPlot.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isSuccess = true;
-        // Update the plot with new users
         state.plots = state.plots.map((plot) =>
           plot._id === action.payload._id ? action.payload : plot
         );
       })
-      .addCase(assignUsersToPlot.rejected, (state, action) => {
+      .addCase(removeUserFromPlot.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
-      });
+        state.isSuccess = true;
+        state.plots = state.plots.map((plot) =>
+          plot._id === action.payload._id ? action.payload : plot
+        );
+      }) // Common cases for all async thunks
+      .addMatcher(
+        (action) => action.type.endsWith("/pending"),
+        (state) => {
+          state.isLoading = true;
+        }
+      )
+      .addMatcher(
+        (action) => action.type.endsWith("/rejected"),
+        (state, action) => {
+          state.isLoading = false;
+          state.isError = true;
+          state.message = action.payload;
+        }
+      );
   },
 });
 
