@@ -42,8 +42,26 @@ const deletePlot = async (plotId, token) => {
       Authorization: `Bearer ${token}`,
     },
   };
-  const response = await axios.delete(`${API_URL}/${plotId}`, config);
-  return response.data;
+
+  try {
+    const response = await axios.delete(`${API_URL}/${plotId}`, config);
+    return response.data;
+  } catch (error) {
+    // Handle specific error cases
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      throw new Error(
+        error.response.data.message ||
+          `Failed to delete plot: ${error.response.status}`
+      );
+    } else if (error.request) {
+      // The request was made but no response was received
+      throw new Error("No response received from server");
+    } else {
+      // Something happened in setting up the request
+      throw new Error("Error setting up delete request");
+    }
+  }
 };
 
 // Add users to plot (incremental)
