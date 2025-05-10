@@ -6,6 +6,8 @@ import {
   createPayment,
   updatePayment,
   deletePayment,
+  transferPayments,
+  getMonthlySummary,
 } from "../../features/payments/paymentSlice";
 import { getPlots } from "../../features/plots/plotSlice";
 import { getLocations } from "../../features/locations/locationSlice";
@@ -18,6 +20,7 @@ import {
   FaChevronUp,
   FaSearch,
   FaFilter,
+  FaExchangeAlt,
 } from "react-icons/fa";
 import { format } from "date-fns";
 
@@ -32,6 +35,7 @@ function PaymentManagement() {
   const { locations } = useSelector((state) => state.locations);
 
   const [modalIsOpen, setModalIsOpen] = useState(false);
+  const [transferModalIsOpen, setTransferModalIsOpen] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [expandedLocation, setExpandedLocation] = useState(null);
   const [expandedPlot, setExpandedPlot] = useState(null);
@@ -45,11 +49,18 @@ function PaymentManagement() {
   const [selectedPlot, setSelectedPlot] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState(
+    new Date().toLocaleString("default", { month: "long" })
+  );
+  const [selectedYear, setSelectedYear] = useState(
+    new Date().getFullYear().toString()
+  );
 
   useEffect(() => {
     dispatch(getLocations());
     dispatch(getPlots());
-  }, [dispatch]);
+    dispatch(getMonthlySummary({ month: selectedMonth, year: selectedYear }));
+  }, [dispatch, selectedMonth, selectedYear]);
 
   useEffect(() => {
     if (selectedPlot) {
@@ -81,8 +92,14 @@ function PaymentManagement() {
     setModalIsOpen(true);
   };
 
+  const openTransferModal = (plot) => {
+    setSelectedPlot(plot);
+    setTransferModalIsOpen(true);
+  };
+
   const closeModal = () => {
     setModalIsOpen(false);
+    setTransferModalIsOpen(false);
   };
 
   const toggleLocation = (locationId) => {
@@ -134,21 +151,23 @@ function PaymentManagement() {
   const handleDelete = async (paymentId, plotId) => {
     if (window.confirm("Are you sure you want to delete this payment?")) {
       try {
-        const result = await dispatch(deletePayment(paymentId));
-
-        if (result.error) {
-          throw result.error;
-        }
-
+        await dispatch(deletePayment(paymentId));
         toast.success("Payment deleted successfully");
-
-        if (plotId) {
-          dispatch(getPaymentsByPlot(plotId));
-        }
+        dispatch(getPaymentsByPlot(plotId));
       } catch (error) {
         toast.error(error.message || "Failed to delete payment");
-        console.error("Delete payment error:", error);
       }
+    }
+  };
+
+  const handleTransfer = async () => {
+    try {
+      await dispatch(transferPayments(selectedPlot._id));
+      toast.success("Unpaid payments transferred to next month");
+      dispatch(getPaymentsByPlot(selectedPlot._id));
+      closeModal();
+    } catch (error) {
+      toast.error(error.message || "Failed to transfer payments");
     }
   };
 
@@ -166,12 +185,10 @@ function PaymentManagement() {
   };
 
   const filteredLocations = locations.filter((location) => {
-    // Filter by search term
     const locationMatches = location.name
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
 
-    // Filter plots within this location
     const filteredPlots = plots.filter(
       (plot) =>
         plot.location?._id === location._id &&
@@ -186,6 +203,14 @@ function PaymentManagement() {
     const dueDate = new Date(payment.dueDate);
     const today = new Date();
     return dueDate < today ? "overdue" : "pending";
+  };
+
+  const filteredPayments = (payments) => {
+    return payments.filter((payment) => {
+      if (statusFilter === "all") return true;
+      const status = getPaymentStatus(payment);
+      return status === statusFilter;
+    });
   };
 
   return (
@@ -224,7 +249,7 @@ function PaymentManagement() {
       </div>
 
       {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <h3 className="text-gray-500 text-sm font-medium">Total Expected</h3>
           <p className="text-2xl font-semibold mt-2">
@@ -254,6 +279,59 @@ function PaymentManagement() {
               .reduce((sum, plot) => sum + calculatePlotTotals(plot).balance, 0)
               .toLocaleString()}
           </p>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex justify-between items-center">
+            <h3 className="text-gray-500 text-sm font-medium">
+              Monthly Summary
+            </h3>
+            <div className="flex space-x-2">
+              <select
+                className="text-sm border border-gray-300 rounded px-2 py-1"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+              >
+                {Array.from({ length: 12 }, (_, i) => {
+                  const month = new Date(0, i).toLocaleString("default", {
+                    month: "long",
+                  });
+                  return (
+                    <option key={month} value={month}>
+                      {month}
+                    </option>
+                  );
+                })}
+              </select>
+              <select
+                className="text-sm border border-gray-300 rounded px-2 py-1"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+              >
+                {Array.from({ length: 5 }, (_, i) => {
+                  const year = new Date().getFullYear() - 2 + i;
+                  return (
+                    <option key={year} value={year.toString()}>
+                      {year}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+          {payments.summary && (
+            <div className="mt-2">
+              <p className="text-sm">
+                Expected: Ksh {payments.summary.totalExpected?.toLocaleString()}
+              </p>
+              <p className="text-sm">
+                Paid: Ksh {payments.summary.totalPaid?.toLocaleString()}
+              </p>
+              <p className="text-sm">
+                {payments.summary.paidCount} of {payments.summary.paymentCount}{" "}
+                payments completed
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -349,16 +427,29 @@ function PaymentManagement() {
                                 Ksh {totals.balance.toLocaleString()}
                               </p>
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openPaymentFormModal(null, plot);
-                              }}
-                              className="mt-2 sm:mt-0 px-3 py-1 bg-blue-600 text-white rounded-lg text-sm flex items-center space-x-1 hover:bg-blue-700 transition-colors"
-                            >
-                              <FaPlus className="w-3 h-3" />
-                              <span>Add Payment</span>
-                            </button>
+                            <div className="flex space-x-2 mt-2 sm:mt-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openPaymentFormModal(null, plot);
+                                }}
+                                className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm flex items-center space-x-1 hover:bg-blue-700 transition-colors"
+                              >
+                                <FaPlus className="w-3 h-3" />
+                                <span>Add Payment</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openTransferModal(plot);
+                                }}
+                                className="px-3 py-1 bg-purple-600 text-white rounded-lg text-sm flex items-center space-x-1 hover:bg-purple-700 transition-colors"
+                                title="Transfer unpaid payments"
+                              >
+                                <FaExchangeAlt className="w-3 h-3" />
+                                <span>Transfer</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
 
@@ -389,74 +480,76 @@ function PaymentManagement() {
                                   </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                  {plotPayments.map((payment) => {
-                                    const status = getPaymentStatus(payment);
-                                    return (
-                                      <tr key={payment._id}>
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                          {format(
-                                            new Date(payment.dueDate),
-                                            "MMM dd, yyyy"
-                                          )}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                          Ksh{" "}
-                                          {payment.expectedAmount.toLocaleString()}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                          Ksh{" "}
-                                          {payment.paidAmount.toLocaleString()}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap">
-                                          <span
-                                            className={`px-2 py-1 inline-flex text-xs leading-4 font-medium rounded-full ${
-                                              status === "paid"
-                                                ? "bg-green-100 text-green-800"
+                                  {filteredPayments(plotPayments).map(
+                                    (payment) => {
+                                      const status = getPaymentStatus(payment);
+                                      return (
+                                        <tr key={payment._id}>
+                                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                            {format(
+                                              new Date(payment.dueDate),
+                                              "MMM dd, yyyy"
+                                            )}
+                                          </td>
+                                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                            Ksh{" "}
+                                            {payment.expectedAmount.toLocaleString()}
+                                          </td>
+                                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                            Ksh{" "}
+                                            {payment.paidAmount.toLocaleString()}
+                                          </td>
+                                          <td className="px-4 py-3 whitespace-nowrap">
+                                            <span
+                                              className={`px-2 py-1 inline-flex text-xs leading-4 font-medium rounded-full ${
+                                                status === "paid"
+                                                  ? "bg-green-100 text-green-800"
+                                                  : status === "overdue"
+                                                  ? "bg-red-100 text-red-800"
+                                                  : "bg-yellow-100 text-yellow-800"
+                                              }`}
+                                            >
+                                              {status === "paid"
+                                                ? "Paid"
                                                 : status === "overdue"
-                                                ? "bg-red-100 text-red-800"
-                                                : "bg-yellow-100 text-yellow-800"
-                                            }`}
-                                          >
-                                            {status === "paid"
-                                              ? "Paid"
-                                              : status === "overdue"
-                                              ? "Overdue"
-                                              : "Pending"}
-                                          </span>
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
-                                          <div className="flex items-center space-x-2">
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openPaymentFormModal(
-                                                  payment,
-                                                  plot
-                                                );
-                                              }}
-                                              className="p-1.5 text-blue-600 hover:text-blue-900 rounded-md hover:bg-blue-50 transition-colors"
-                                              title="Edit payment"
-                                            >
-                                              <FaEdit className="w-4 h-4" />
-                                            </button>
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDelete(
-                                                  payment._id,
-                                                  selectedPlot._id
-                                                );
-                                              }}
-                                              className="p-1.5 text-red-600 hover:text-red-900 rounded-md hover:bg-red-50 transition-colors"
-                                              title="Delete payment"
-                                            >
-                                              <FaTrash className="w-4 h-4" />
-                                            </button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
+                                                ? "Overdue"
+                                                : "Pending"}
+                                            </span>
+                                          </td>
+                                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                                            <div className="flex items-center space-x-2">
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openPaymentFormModal(
+                                                    payment,
+                                                    plot
+                                                  );
+                                                }}
+                                                className="p-1.5 text-blue-600 hover:text-blue-900 rounded-md hover:bg-blue-50 transition-colors"
+                                                title="Edit payment"
+                                              >
+                                                <FaEdit className="w-4 h-4" />
+                                              </button>
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleDelete(
+                                                    payment._id,
+                                                    plot._id
+                                                  );
+                                                }}
+                                                className="p-1.5 text-red-600 hover:text-red-900 rounded-md hover:bg-red-50 transition-colors"
+                                                title="Delete payment"
+                                              >
+                                                <FaTrash className="w-4 h-4" />
+                                              </button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    }
+                                  )}
                                 </tbody>
                               </table>
                             </div>
@@ -579,6 +672,61 @@ function PaymentManagement() {
               </button>
             </div>
           </form>
+        </div>
+      </Modal>
+
+      {/* Transfer Payments Modal */}
+      <Modal
+        isOpen={transferModalIsOpen}
+        onRequestClose={closeModal}
+        contentLabel="Transfer Payments"
+        className="modal"
+        overlayClassName="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4"
+      >
+        <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-800">
+              Transfer Unpaid Payments
+            </h2>
+            <button
+              onClick={closeModal}
+              className="text-gray-400 hover:text-gray-500"
+            >
+              &times;
+            </button>
+          </div>
+
+          {selectedPlot && (
+            <div className="mb-6">
+              <p className="text-gray-700 mb-2">
+                Are you sure you want to transfer all unpaid payments for plot{" "}
+                <span className="font-semibold">{selectedPlot.plotNumber}</span>{" "}
+                to next month?
+              </p>
+              <p className="text-sm text-gray-500">
+                This will create new payment schedules for the next month with
+                the same expected amounts.
+              </p>
+            </div>
+          )}
+
+          <div className="mt-6 flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={closeModal}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleTransfer}
+              disabled={isLoading}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-70"
+            >
+              {isLoading ? "Transferring..." : "Confirm Transfer"}
+            </button>
+          </div>
         </div>
       </Modal>
     </div>
