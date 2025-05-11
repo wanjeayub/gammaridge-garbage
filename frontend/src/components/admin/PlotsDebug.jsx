@@ -113,8 +113,8 @@ function PlotDebug() {
   // Filter plots based on search and location filter
   const filteredPlots = plots.filter((plot) => {
     const matchesSearch = plot.plotNumber
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
+      ? plot.plotNumber.toLowerCase().includes(searchTerm.toLowerCase())
+      : false;
     const matchesLocation = locationFilter
       ? plot.location?._id === locationFilter.value
       : true;
