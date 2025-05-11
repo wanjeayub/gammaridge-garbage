@@ -232,7 +232,7 @@ function PlotDebug() {
     e.preventDefault();
     const plotData = {
       plotNumber: currentPlot.plotNumber,
-      bagsRequired: currentPlot.bagsRequired,
+      bagsRequired: Number(currentPlot.bagsRequired), // Ensure it's a number
       location: currentPlot.location,
     };
 
@@ -248,6 +248,7 @@ function PlotDebug() {
       closeModal();
     } catch (error) {
       toast.error(error.message || "Operation failed");
+      console.error("Plot operation error:", error);
     }
   };
 

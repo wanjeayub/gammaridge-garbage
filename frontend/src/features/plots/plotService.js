@@ -9,7 +9,7 @@ const getPlots = async (token) => {
       Authorization: `Bearer ${token}`,
     },
   };
-  const response = await axios.get(API_URL, config);
+  const response = await axios.get(`${API_URL}/all`, config);
   return response.data;
 };
 
@@ -18,10 +18,19 @@ const createPlot = async (plotData, token) => {
   const config = {
     headers: {
       Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
   };
-  const response = await axios.post(API_URL, plotData, config);
-  return response.data;
+
+  console.log("Sending request to server with:", { plotData, config }); // Add this
+
+  try {
+    const response = await axios.post(`${API_URL}/create`, plotData, config);
+    return response.data;
+  } catch (error) {
+    console.error("API Error:", error.response); // Add this
+    throw error;
+  }
 };
 
 // Update plot

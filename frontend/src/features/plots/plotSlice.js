@@ -27,8 +27,15 @@ export const createPlot = createAsyncThunk(
   async (plotData, thunkAPI) => {
     try {
       const token = thunkAPI.getState().auth.user.token;
-      return await plotService.createPlot(plotData, token);
+      if (!token) {
+        throw new Error("No authentication token found");
+      }
+      console.log("Creating plot with data:", plotData); // Add this
+      const response = await plotService.createPlot(plotData, token);
+      console.log("Plot created successfully:", response); // Add this
+      return response;
     } catch (error) {
+      console.error("Error creating plot:", error); // Add this
       return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
   }
