@@ -232,7 +232,7 @@ function PlotDebug() {
     e.preventDefault();
     const plotData = {
       plotNumber: currentPlot.plotNumber,
-      bagsRequired: Number(currentPlot.bagsRequired), // Ensure it's a number
+      bagsRequired: Number(currentPlot.bagsRequired),
       location: currentPlot.location,
     };
 
@@ -241,13 +241,22 @@ function PlotDebug() {
         await dispatch(
           updatePlot({ plotId: currentPlot._id, plotData })
         ).unwrap();
+        toast.success("Plot updated successfully");
       } else {
         await dispatch(createPlot(plotData)).unwrap();
+        toast.success("Plot created successfully");
       }
       dispatch(getPlots());
       closeModal();
     } catch (error) {
-      toast.error(error.message || "Operation failed");
+      // Handle different error response formats
+      const errorMessage =
+        error?.data?.error || // Your current format
+        error?.message || // Default Redux Toolkit format
+        error?.response?.data?.message || // Common Axios format
+        "Failed to save plot"; // Fallback message
+
+      toast.error(errorMessage);
       console.error("Plot operation error:", error);
     }
   };
