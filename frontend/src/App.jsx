@@ -32,9 +32,9 @@ function App() {
           <Route index element={<AdminDashboard />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="locations" element={<AdminLocations />} />
-          <Route path="plots" element={<AdminPlots />} />
-          <Route path="assign" element={<AdminAssignHouseholds />} />
-          <Route path="debug" element={<PlotDebug />} />
+          <Route path="plots" element={<PlotDebug />} />
+          {/* <Route path="assign" element={<AdminAssignHouseholds />} /> */}
+          {/* <Route path="debug" element={<PlotDebug />} /> */}
           <Route path="payments" element={<AdminPayments />} />
           <Route path="reports" element={<AdminReports />} />
         </Route>
