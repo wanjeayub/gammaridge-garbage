@@ -72,13 +72,16 @@ const getMonthlySummary = async (month, year, token) => {
       Authorization: `Bearer ${token}`,
     },
   };
+
+  // Convert month name to number
+  const monthNum = new Date(`${month} 1, 2020`).getMonth() + 1;
+
   const response = await axios.get(
-    `${API_URL}/summary/${month}/${year}`,
+    `${API_URL}/summary/${monthNum}/${year}`,
     config
   );
   return response.data;
 };
-
 const paymentService = {
   getPaymentsByPlot,
   createPayment,

@@ -207,17 +207,15 @@ export const paymentSlice = createSlice({
         state.message = action.payload;
       })
       .addCase(getMonthlySummary.pending, (state) => {
-        state.isLoading = true;
+        state.summaryLoading = true;
       })
       .addCase(getMonthlySummary.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.isSuccess = true;
+        state.summaryLoading = false;
         state.summary = action.payload;
       })
       .addCase(getMonthlySummary.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
+        state.summaryLoading = false;
+        state.summaryError = action.payload;
       });
   },
 });
