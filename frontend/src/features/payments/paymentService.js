@@ -82,7 +82,22 @@ const getMonthlySummary = async (month, year, token) => {
   );
   return response.data;
 };
+
+// @desc    Get all payments
+// @route   GET /api/payments
+// @access  Private/Admin
+const getAllPayments = async (token) => {
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+
+  const response = await axios.get(`${API_URL}/all`, config);
+  return response.data;
+};
 const paymentService = {
+  getAllPayments,
   getPaymentsByPlot,
   createPayment,
   updatePayment,

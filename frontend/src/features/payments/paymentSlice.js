@@ -124,6 +124,25 @@ export const getMonthlySummary = createAsyncThunk(
   }
 );
 
+// Async Thunk for getting all payments
+export const getAllPayments = createAsyncThunk(
+  "payments/getAll",
+  async (_, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user.token;
+      return await paymentService.getAllPayments(token);
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
 export const paymentSlice = createSlice({
   name: "payments",
   initialState,
@@ -189,6 +208,19 @@ export const paymentSlice = createSlice({
         );
       })
       .addCase(deletePayment.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(getAllPayments.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(getAllPayments.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.payments = action.payload;
+      })
+      .addCase(getAllPayments.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;
