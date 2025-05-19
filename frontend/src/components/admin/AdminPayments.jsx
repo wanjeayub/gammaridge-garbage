@@ -215,6 +215,13 @@ const AdminDashboard = () => {
     (state) => state.locations
   );
 
+  const [deleteConfirmation, setDeleteConfirmation] = useState({
+    open: false,
+    type: null,
+    id: null,
+    name: null,
+  });
+
   // Local state
   const [activeTab, setActiveTab] = useState(0);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -472,43 +479,61 @@ const AdminDashboard = () => {
       });
     }
   };
+
   // Handle delete
-  const handleDelete = async (type, id) => {
+  const handleDeleteClick = (type, id, name) => {
+    setDeleteConfirmation({
+      open: true,
+      type,
+      id,
+      name,
+    });
+  };
+
+  const handleDeleteConfirm = async () => {
+    const { type, id } = deleteConfirmation;
     try {
       switch (type) {
         case "plot":
           await dispatch(deletePlot(id)).unwrap();
-          setSnackbar({
-            open: true,
-            message: "Plot deleted successfully",
-            severity: "success",
-          });
+          await dispatch(getPlots());
+          if (selectedLocation) {
+            await dispatch(getLocations());
+          }
           break;
         case "payment":
           await dispatch(deletePayment(id)).unwrap();
-          setSnackbar({
-            open: true,
-            message: "Payment schedule deleted successfully",
-            severity: "success",
-          });
+          if (selectedPlot) {
+            await dispatch(getPaymentsByPlot(selectedPlot._id));
+          } else {
+            const month = selectedMonth.getMonth() + 1;
+            const year = selectedMonth.getFullYear();
+            await dispatch(getPaymentsByMonth({ month, year }));
+            await dispatch(getMonthlySummary({ month, year }));
+          }
           break;
         case "location":
           await dispatch(deleteLocation(id)).unwrap();
-          setSnackbar({
-            open: true,
-            message: "Location deleted successfully",
-            severity: "success",
-          });
+          await dispatch(getLocations());
+          await dispatch(getPlots());
           break;
         default:
           break;
       }
+
+      setSnackbar({
+        open: true,
+        message: `${deleteConfirmation.type} deleted successfully`,
+        severity: "success",
+      });
     } catch (error) {
       setSnackbar({
         open: true,
-        message: error || "An error occurred",
+        message: error.message || "An error occurred",
         severity: "error",
       });
+    } finally {
+      setDeleteConfirmation({ open: false, type: null, id: null, name: null });
     }
   };
 
@@ -974,7 +999,7 @@ const AdminDashboard = () => {
                                     size="small"
                                     color="error"
                                     onClick={() =>
-                                      handleDelete("payment", payment._id)
+                                      handleDeleteClick("payment", payment._id)
                                     }
                                     sx={{
                                       backgroundColor:
@@ -1015,7 +1040,7 @@ const AdminDashboard = () => {
                   plots={plots}
                   locations={locations}
                   onEdit={(payment) => handleDialogOpen("editPayment", payment)}
-                  onDelete={(id) => handleDelete("payment", id)}
+                  onDelete={(id) => handleDeleteClick("payment", id)}
                 />
               )}
             </Box>
@@ -1171,7 +1196,7 @@ const AdminDashboard = () => {
                             </Box>
                           </TableCell>
                           <TableCell>Bags Required</TableCell>
-                          <TableCell>Collectors</TableCell>
+                          <TableCell>Users</TableCell>
                           <TableCell>Actions</TableCell>
                         </TableRow>
                       </TableHead>
@@ -1236,7 +1261,7 @@ const AdminDashboard = () => {
                                       color="error"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        handleDelete("plot", plot._id);
+                                        handleDeleteClick("plot", plot._id);
                                       }}
                                       sx={{
                                         backgroundColor:
@@ -1488,7 +1513,10 @@ const AdminDashboard = () => {
                                       size="small"
                                       color="error"
                                       onClick={() =>
-                                        handleDelete("payment", payment._id)
+                                        handleDeleteClick(
+                                          "payment",
+                                          payment._id
+                                        )
                                       }
                                       sx={{
                                         backgroundColor:
@@ -1890,6 +1918,44 @@ const AdminDashboard = () => {
             </DialogActions>
           </form>
         </DialogContent>
+      </Dialog>
+
+      {/* delete modal */}
+      <Dialog
+        open={deleteConfirmation.open}
+        onClose={() =>
+          setDeleteConfirmation({ ...deleteConfirmation, open: false })
+        }
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this {deleteConfirmation.type}?
+            {deleteConfirmation.name && (
+              <>
+                <br />
+                <strong>{deleteConfirmation.name}</strong>
+              </>
+            )}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() =>
+              setDeleteConfirmation({ ...deleteConfirmation, open: false })
+            }
+            color="primary"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+          >
+            Delete
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Snackbar */}
