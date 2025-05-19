@@ -1,16 +1,32 @@
-import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import {
+  createSlice,
+  createAsyncThunk,
+  createSelector,
+} from "@reduxjs/toolkit";
 import paymentService from "./paymentService";
 
 const initialState = {
   payments: [],
   summary: null,
+  monthlyPayments: [], // Add this line
   isError: false,
   isSuccess: false,
   isLoading: false,
   message: "",
+  summaryLoading: false,
+  summaryError: null,
 };
 
-// Get payments by plot
+// Helper function for consistent error handling
+const handleAsyncError = (error) => {
+  return (
+    error.response?.data?.message ||
+    error.message ||
+    "An unexpected error occurred"
+  );
+};
+
+// Async Thunks
 export const getPaymentsByPlot = createAsyncThunk(
   "payments/getByPlot",
   async (plotId, thunkAPI) => {
@@ -18,18 +34,11 @@ export const getPaymentsByPlot = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await paymentService.getPaymentsByPlot(plotId, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
   }
 );
 
-// Create payment
 export const createPayment = createAsyncThunk(
   "payments/create",
   async (paymentData, thunkAPI) => {
@@ -37,37 +46,26 @@ export const createPayment = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await paymentService.createPayment(paymentData, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
   }
 );
 
-// Update payment
 export const updatePayment = createAsyncThunk(
   "payments/update",
   async ({ paymentId, paymentData }, thunkAPI) => {
     try {
       const token = thunkAPI.getState().auth.user.token;
-      return await paymentService.updatePayment(paymentId, paymentData, token);
+      return await paymentService.updatePayment(
+        { paymentId, paymentData },
+        token
+      );
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
   }
 );
 
-// Delete payment
 export const deletePayment = createAsyncThunk(
   "payments/delete",
   async (paymentId, thunkAPI) => {
@@ -75,18 +73,11 @@ export const deletePayment = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await paymentService.deletePayment(paymentId, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
   }
 );
 
-// Transfer payments
 export const transferPayments = createAsyncThunk(
   "payments/transfer",
   async (plotId, thunkAPI) => {
@@ -94,18 +85,11 @@ export const transferPayments = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await paymentService.transferPayments(plotId, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
   }
 );
 
-// Get monthly summary
 export const getMonthlySummary = createAsyncThunk(
   "payments/getSummary",
   async ({ month, year }, thunkAPI) => {
@@ -113,18 +97,11 @@ export const getMonthlySummary = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await paymentService.getMonthlySummary(month, year, token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
   }
 );
 
-// Async Thunk for getting all payments
 export const getAllPayments = createAsyncThunk(
   "payments/getAll",
   async (_, thunkAPI) => {
@@ -132,13 +109,40 @@ export const getAllPayments = createAsyncThunk(
       const token = thunkAPI.getState().auth.user.token;
       return await paymentService.getAllPayments(token);
     } catch (error) {
-      const message =
-        (error.response &&
-          error.response.data &&
-          error.response.data.message) ||
-        error.message ||
-        error.toString();
-      return thunkAPI.rejectWithValue(message);
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
+    }
+  }
+);
+
+// Selectors
+export const selectAllPayments = (state) => state.payments.payments;
+export const selectPaymentStatus = (state) => ({
+  isLoading: state.payments.isLoading,
+  isError: state.payments.isError,
+  message: state.payments.message,
+  summaryLoading: state.payments.summaryLoading,
+  summaryError: state.payments.summaryError,
+});
+
+export const selectPaymentsByPlot = createSelector(
+  [selectAllPayments, (_, plotId) => plotId],
+  (payments, plotId) => payments.filter((payment) => payment.plot === plotId)
+);
+
+export const selectSummaryData = (state) => ({
+  summary: state.payments.summary,
+  isLoading: state.payments.summaryLoading,
+  error: state.payments.summaryError,
+});
+
+export const getPaymentsByMonth = createAsyncThunk(
+  "payments/getByMonth",
+  async ({ month, year }, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user.token;
+      return await paymentService.getPaymentsByMonth(month, year, token);
+    } catch (error) {
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
   }
 );
@@ -147,15 +151,29 @@ export const paymentSlice = createSlice({
   name: "payments",
   initialState,
   reducers: {
-    reset: (state) => {
-      state.isLoading = false;
-      state.isSuccess = false;
+    reset: (state) => initialState,
+    clearPaymentErrors: (state) => {
       state.isError = false;
       state.message = "";
+      state.summaryError = null;
     },
   },
   extraReducers: (builder) => {
+    // First handle all specific cases
     builder
+      .addCase(getAllPayments.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(getAllPayments.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.payments = action.payload;
+      })
+      .addCase(getAllPayments.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
       .addCase(getPaymentsByPlot.pending, (state) => {
         state.isLoading = true;
       })
@@ -212,19 +230,6 @@ export const paymentSlice = createSlice({
         state.isError = true;
         state.message = action.payload;
       })
-      .addCase(getAllPayments.pending, (state) => {
-        state.isLoading = true;
-      })
-      .addCase(getAllPayments.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.isSuccess = true;
-        state.payments = action.payload;
-      })
-      .addCase(getAllPayments.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
-      })
       .addCase(transferPayments.pending, (state) => {
         state.isLoading = true;
       })
@@ -238,8 +243,22 @@ export const paymentSlice = createSlice({
         state.isError = true;
         state.message = action.payload;
       })
+      .addCase(getPaymentsByMonth.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(getPaymentsByMonth.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.monthlyPayments = action.payload;
+      })
+      .addCase(getPaymentsByMonth.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
       .addCase(getMonthlySummary.pending, (state) => {
         state.summaryLoading = true;
+        state.summaryError = null;
       })
       .addCase(getMonthlySummary.fulfilled, (state, action) => {
         state.summaryLoading = false;
@@ -249,8 +268,11 @@ export const paymentSlice = createSlice({
         state.summaryLoading = false;
         state.summaryError = action.payload;
       });
+
+    // Then add matchers if needed
+    // builder.addMatcher(...)
   },
 });
 
-export const { reset } = paymentSlice.actions;
+export const { reset, clearPaymentErrors } = paymentSlice.actions;
 export default paymentSlice.reducer;

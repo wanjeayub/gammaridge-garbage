@@ -11,7 +11,7 @@ import AdminUsers from "./components/admin/Users";
 import AdminLocations from "./components/admin/Locations";
 import AdminPlots from "./components/admin/Plots";
 import AdminAssignHouseholds from "./components/admin/AssignHouseholdModal";
-import AdminPayments from "./components/admin/PaymentManagement";
+import AdminPayments from "./components/admin/AdminPayments";
 import AdminReports from "./components/admin/Reports";
 
 // User routes
@@ -19,6 +19,7 @@ import UserDashboard from "./components/user/Dashboard";
 import UserProfile from "./components/user/Profile";
 import UserPayments from "./components/user/Payments";
 import PlotDebug from "./components/admin/PlotsDebug";
+import AdminDashboardo from "./components/admin/TestAdminPay";
 
 function App() {
   return (
