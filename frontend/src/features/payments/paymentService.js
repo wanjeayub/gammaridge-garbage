@@ -105,6 +105,7 @@ const paymentService = {
         createAuthConfig(token)
       );
       requestCache.set(cacheKey, response.data);
+      console.log("Monthly summary response:", response.data);
       return response.data;
     } catch (error) {
       console.error("[PaymentService] Get monthly summary error:", error);

@@ -91,13 +91,15 @@ export const transferPayments = createAsyncThunk(
 );
 
 export const getMonthlySummary = createAsyncThunk(
-  "payments/getSummary",
+  "payments/getMonthlySummary",
   async ({ month, year }, thunkAPI) => {
     try {
       const token = thunkAPI.getState().auth.user.token;
       return await paymentService.getMonthlySummary(month, year, token);
     } catch (error) {
-      return thunkAPI.rejectWithValue(handleAsyncError(error));
+      return thunkAPI.rejectWithValue(
+        error.response?.data?.message || error.message
+      );
     }
   }
 );

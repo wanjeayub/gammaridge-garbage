@@ -23,6 +23,8 @@ import AdminDashboardo from "./components/admin/TestAdminPay";
 // import Dashboard from "./components/admin/Dashboard";
 // import Dashboard2 from "./components/admin/Dasgboard";
 import PaymentDashboard from "./components/admin/Dashboard22";
+import PaymentDashboard111 from "./components/admin/testing";
+import PaymentDashboard22 from "./components/admin/testing";
 
 function App() {
   return (
@@ -39,7 +41,7 @@ function App() {
           <Route path="plots" element={<PlotDebug />} />
           {/* <Route path="assign" element={<AdminAssignHouseholds />} /> */}
           {/* <Route path="debug" element={<PlotDebug />} /> */}
-          <Route path="payments" element={<PaymentDashboard />} />
+          <Route path="payments" element={<PaymentDashboard22 />} />
           <Route path="reports" element={<AdminReports />} />
         </Route>
 
