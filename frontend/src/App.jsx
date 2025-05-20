@@ -20,6 +20,9 @@ import UserProfile from "./components/user/Profile";
 import UserPayments from "./components/user/Payments";
 import PlotDebug from "./components/admin/PlotsDebug";
 import AdminDashboardo from "./components/admin/TestAdminPay";
+// import Dashboard from "./components/admin/Dashboard";
+// import Dashboard2 from "./components/admin/Dasgboard";
+import PaymentDashboard from "./components/admin/Dashboard22";
 
 function App() {
   return (
@@ -36,7 +39,7 @@ function App() {
           <Route path="plots" element={<PlotDebug />} />
           {/* <Route path="assign" element={<AdminAssignHouseholds />} /> */}
           {/* <Route path="debug" element={<PlotDebug />} /> */}
-          <Route path="payments" element={<AdminPayments />} />
+          <Route path="payments" element={<PaymentDashboard />} />
           <Route path="reports" element={<AdminReports />} />
         </Route>
 
