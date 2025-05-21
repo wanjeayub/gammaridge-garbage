@@ -112,6 +112,49 @@ const PaymentDashboard22 = () => {
     }
   };
 
+  // Submit payment
+  const submitPayment = async (e) => {
+    e.preventDefault();
+    try {
+      const paymentData = {
+        expectedAmount: parseFloat(formData.expectedAmount),
+        paidAmount: parseFloat(formData.paidAmount),
+        dueDate: formData.dueDate,
+        isPaid:
+          parseFloat(formData.paidAmount) >=
+          parseFloat(formData.expectedAmount),
+      };
+
+      if (currentPayment) {
+        await dispatch(
+          updatePayment({
+            paymentId: currentPayment._id,
+            paymentData,
+          })
+        ).unwrap();
+        toast.success("Payment updated successfully");
+      } else {
+        await dispatch(
+          createPayment({
+            plot: currentPlot._id,
+            ...paymentData,
+          })
+        ).unwrap();
+        toast.success("Payment created successfully");
+      }
+
+      setShowPaymentForm(false);
+
+      // Refresh data
+      const [year, month] = selectedMonth.split("-");
+      dispatch(getPaymentsByMonth({ month: parseInt(month), year }));
+      dispatch(getMonthlySummary({ month: parseInt(month), year }));
+    } catch (error) {
+      toast.error("Payment operation failed");
+      console.error("Payment operation failed:", error);
+    }
+  };
+
   // Group payments by plot ID for easy lookup
   const paymentsByPlotId =
     monthlyPayments?.reduce((acc, payment) => {
