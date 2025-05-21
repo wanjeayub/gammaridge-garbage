@@ -63,6 +63,55 @@ const PaymentDashboard22 = () => {
     return `Ksh ${amount?.toFixed(2) || "0.00"}`;
   };
 
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+  };
+
+  // Handle payment creation
+  const handleCreatePayment = (plot) => {
+    setCurrentPlot(plot);
+    setCurrentPayment(null);
+    setShowPaymentForm(true);
+    setFormData({
+      expectedAmount: "",
+      paidAmount: "0",
+      dueDate: format(new Date(), "yyyy-MM-dd"),
+    });
+  };
+
+  // Handle payment update
+  const handlePayNow = (payment) => {
+    setCurrentPayment(payment);
+    setCurrentPlot(payment.plot);
+    setShowPaymentForm(true);
+    setFormData({
+      expectedAmount: payment.expectedAmount,
+      paidAmount: payment.paidAmount,
+      dueDate: format(new Date(payment.dueDate), "yyyy-MM-dd"),
+    });
+  };
+
+  // Handle payment deletion
+  const handleDeletePayment = async (paymentId) => {
+    if (window.confirm("Are you sure you want to delete this payment?")) {
+      try {
+        await dispatch(deletePayment(paymentId)).unwrap();
+        toast.success("Payment deleted successfully");
+
+        // Refresh data
+        const [year, month] = selectedMonth.split("-");
+        dispatch(getPaymentsByMonth({ month: parseInt(month), year }));
+        dispatch(getMonthlySummary({ month: parseInt(month), year }));
+      } catch (error) {
+        toast.error("Failed to delete payment");
+      }
+    }
+  };
+
   // Group payments by plot ID for easy lookup
   const paymentsByPlotId =
     monthlyPayments?.reduce((acc, payment) => {
