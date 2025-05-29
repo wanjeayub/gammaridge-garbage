@@ -163,10 +163,20 @@ const PaymentDashboard22 = () => {
     }, {}) || {};
 
   // Group plots by location
+  // Group plots by location and sort them by plotNumber
   const plotsByLocation =
     locations?.reduce((acc, location) => {
-      acc[location._id] =
+      const locationPlots =
         plots?.filter((plot) => plot.location?._id === location._id) || [];
+
+      // Sort plots by plotNumber in ascending order
+      acc[location._id] = locationPlots.sort((a, b) => {
+        // Extract numeric parts from plot numbers (assuming format like "mm001")
+        const numA = parseInt(a.plotNumber.replace(/\D/g, "")),
+          numB = parseInt(b.plotNumber.replace(/\D/g, ""));
+        return numA - numB;
+      });
+
       return acc;
     }, {}) || {};
 
@@ -368,6 +378,7 @@ const PaymentDashboard22 = () => {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {plotsByLocation[location._id]?.map((plot) => {
+                        // This will now render plots in sorted order
                         const payment = paymentsByPlotId[plot._id];
                         const primaryUser = plot.users?.[0];
 
