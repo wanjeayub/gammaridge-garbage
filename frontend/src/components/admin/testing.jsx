@@ -1,13 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
+  transferPayments,
   getPaymentsByMonth,
   createPayment,
   updatePayment,
   deletePayment,
   getMonthlySummary,
   clearPaymentErrors,
+  transferAllPayments,
 } from "../../features/payments/paymentSlice";
 import { getPlots } from "../../features/plots/plotSlice";
 import { getLocations } from "../../features/locations/locationSlice";
@@ -17,7 +19,7 @@ const PaymentDashboard22 = () => {
   const dispatch = useDispatch();
   const {
     monthlyPayments,
-    summary, // Changed from monthlySummary to match Redux slice
+    summary,
     isLoading: paymentsLoading,
     isError,
     message,
@@ -58,21 +60,108 @@ const PaymentDashboard22 = () => {
     loadData();
   }, [dispatch, selectedMonth]);
 
+  // Handle errors
+  useEffect(() => {
+    if (isError && message) {
+      toast.error(message);
+      dispatch(clearPaymentErrors());
+    }
+  }, [isError, message, dispatch]);
+
   // Format currency in KSH
-  const formatCurrency = (amount) => {
+  const formatCurrency = useCallback((amount) => {
     return `Ksh ${amount?.toFixed(2) || "0.00"}`;
-  };
+  }, []);
+
+  const handleTransferPayments = useCallback(
+    async (plotId) => {
+      if (
+        window.confirm(
+          "Transfer all payments to next month? This will overwrite any existing transferred payments for next month."
+        )
+      ) {
+        try {
+          const result = await dispatch(transferPayments(plotId)).unwrap();
+
+          toast.success(
+            `Successfully transferred ${result.count} payment(s) to ${result.month}`,
+            {
+              position: "top-right",
+              autoClose: 5000,
+              hideProgressBar: false,
+              closeOnClick: true,
+              pauseOnHover: true,
+              draggable: true,
+            }
+          );
+
+          // Refresh data
+          const [year, month] = selectedMonth.split("-");
+          await dispatch(getPaymentsByMonth({ month: parseInt(month), year }));
+          await dispatch(getMonthlySummary({ month: parseInt(month), year }));
+        } catch (error) {
+          toast.error(error.message || "Failed to transfer payments", {
+            position: "top-right",
+            autoClose: 5000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+          });
+        }
+      }
+    },
+    [dispatch, selectedMonth]
+  );
+
+  const handleTransferAllPayments = useCallback(async () => {
+    if (
+      window.confirm(
+        "Transfer ALL payments to next month? This will overwrite any existing transferred payments for next month across all plots."
+      )
+    ) {
+      try {
+        const result = await dispatch(transferAllPayments()).unwrap();
+
+        toast.success(
+          `Successfully transferred ${result.totalTransferred} payments across ${result.results.length} plots to ${result.month}`,
+          {
+            position: "top-right",
+            autoClose: 5000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+          }
+        );
+
+        // Refresh data
+        const [year, month] = selectedMonth.split("-");
+        await dispatch(getPaymentsByMonth({ month: parseInt(month), year }));
+        await dispatch(getMonthlySummary({ month: parseInt(month), year }));
+      } catch (error) {
+        toast.error(error.message || "Failed to transfer payments", {
+          position: "top-right",
+          autoClose: 5000,
+          hideProgressBar: false,
+          closeOnClick: true,
+          pauseOnHover: true,
+          draggable: true,
+        });
+      }
+    }
+  }, [dispatch, selectedMonth]);
 
   // Handle form input changes
-  const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
+  const handleInputChange = useCallback((e) => {
+    setFormData((prev) => ({
+      ...prev,
       [e.target.name]: e.target.value,
-    });
-  };
+    }));
+  }, []);
 
   // Handle payment creation
-  const handleCreatePayment = (plot) => {
+  const handleCreatePayment = useCallback((plot) => {
     setCurrentPlot(plot);
     setCurrentPayment(null);
     setShowPaymentForm(true);
@@ -81,10 +170,10 @@ const PaymentDashboard22 = () => {
       paidAmount: "0",
       dueDate: format(new Date(), "yyyy-MM-dd"),
     });
-  };
+  }, []);
 
   // Handle payment update
-  const handlePayNow = (payment) => {
+  const handlePayNow = useCallback((payment) => {
     setCurrentPayment(payment);
     setCurrentPlot(payment.plot);
     setShowPaymentForm(true);
@@ -93,99 +182,109 @@ const PaymentDashboard22 = () => {
       paidAmount: payment.paidAmount,
       dueDate: format(new Date(payment.dueDate), "yyyy-MM-dd"),
     });
-  };
+  }, []);
+
+  // Handle payment edit
+  const handleEditPayment = useCallback((payment, plot) => {
+    setCurrentPayment(payment);
+    setCurrentPlot(plot);
+    setShowPaymentForm(true);
+    setFormData({
+      expectedAmount: payment.expectedAmount,
+      paidAmount: payment.paidAmount,
+      dueDate: format(new Date(payment.dueDate), "yyyy-MM-dd"),
+    });
+  }, []);
 
   // Handle payment deletion
-  const handleDeletePayment = async (paymentId) => {
-    if (window.confirm("Are you sure you want to delete this payment?")) {
-      try {
-        await dispatch(deletePayment(paymentId)).unwrap();
-        toast.success("Payment deleted successfully");
+  const handleDeletePayment = useCallback(
+    async (paymentId) => {
+      if (window.confirm("Are you sure you want to delete this payment?")) {
+        try {
+          await dispatch(deletePayment(paymentId)).unwrap();
+          toast.success("Payment deleted successfully");
+          const [year, month] = selectedMonth.split("-");
+          dispatch(getPaymentsByMonth({ month: parseInt(month), year }));
+          dispatch(getMonthlySummary({ month: parseInt(month), year }));
+        } catch (error) {
+          toast.error("Failed to delete payment");
+        }
+      }
+    },
+    [dispatch, selectedMonth]
+  );
 
-        // Refresh data
+  // Submit payment
+  const submitPayment = useCallback(
+    async (e) => {
+      e.preventDefault();
+      try {
+        const paymentData = {
+          expectedAmount: parseFloat(formData.expectedAmount),
+          paidAmount: parseFloat(formData.paidAmount),
+          dueDate: formData.dueDate,
+          isPaid:
+            parseFloat(formData.paidAmount) >=
+            parseFloat(formData.expectedAmount),
+        };
+
+        if (currentPayment) {
+          await dispatch(
+            updatePayment({
+              paymentId: currentPayment._id,
+              paymentData,
+            })
+          ).unwrap();
+          toast.success("Payment updated successfully");
+        } else {
+          await dispatch(
+            createPayment({
+              plot: currentPlot._id,
+              ...paymentData,
+            })
+          ).unwrap();
+          toast.success("Payment created successfully");
+        }
+
+        setShowPaymentForm(false);
         const [year, month] = selectedMonth.split("-");
         dispatch(getPaymentsByMonth({ month: parseInt(month), year }));
         dispatch(getMonthlySummary({ month: parseInt(month), year }));
       } catch (error) {
-        toast.error("Failed to delete payment");
+        toast.error("Payment operation failed");
+        console.error("Payment operation failed:", error);
       }
-    }
-  };
-
-  // Submit payment
-  const submitPayment = async (e) => {
-    e.preventDefault();
-    try {
-      const paymentData = {
-        expectedAmount: parseFloat(formData.expectedAmount),
-        paidAmount: parseFloat(formData.paidAmount),
-        dueDate: formData.dueDate,
-        isPaid:
-          parseFloat(formData.paidAmount) >=
-          parseFloat(formData.expectedAmount),
-      };
-
-      if (currentPayment) {
-        await dispatch(
-          updatePayment({
-            paymentId: currentPayment._id,
-            paymentData,
-          })
-        ).unwrap();
-        toast.success("Payment updated successfully");
-      } else {
-        await dispatch(
-          createPayment({
-            plot: currentPlot._id,
-            ...paymentData,
-          })
-        ).unwrap();
-        toast.success("Payment created successfully");
-      }
-
-      setShowPaymentForm(false);
-
-      // Refresh data
-      const [year, month] = selectedMonth.split("-");
-      dispatch(getPaymentsByMonth({ month: parseInt(month), year }));
-      dispatch(getMonthlySummary({ month: parseInt(month), year }));
-    } catch (error) {
-      toast.error("Payment operation failed");
-      console.error("Payment operation failed:", error);
-    }
-  };
+    },
+    [currentPayment, currentPlot, dispatch, formData, selectedMonth]
+  );
 
   // Group payments by plot ID for easy lookup
-  const paymentsByPlotId =
-    monthlyPayments?.reduce((acc, payment) => {
-      acc[payment.plot._id] = payment;
-      return acc;
-    }, {}) || {};
+  const paymentsByPlotId = useMemo(() => {
+    return (
+      monthlyPayments?.reduce((acc, payment) => {
+        acc[payment.plot._id] = payment;
+        return acc;
+      }, {}) || {}
+    );
+  }, [monthlyPayments]);
 
-  // Group plots by location
   // Group plots by location and sort them by plotNumber
-  const plotsByLocation =
-    locations?.reduce((acc, location) => {
-      const locationPlots =
-        plots?.filter((plot) => plot.location?._id === location._id) || [];
+  const plotsByLocation = useMemo(() => {
+    return (
+      locations?.reduce((acc, location) => {
+        const locationPlots =
+          plots?.filter((plot) => plot.location?._id === location._id) || [];
+        acc[location._id] = locationPlots.sort((a, b) => {
+          const numA = parseInt(a.plotNumber.replace(/\D/g, ""));
+          const numB = parseInt(b.plotNumber.replace(/\D/g, ""));
+          return numA - numB;
+        });
+        return acc;
+      }, {}) || {}
+    );
+  }, [locations, plots]);
 
-      // Sort plots by plotNumber in ascending order
-      acc[location._id] = locationPlots.sort((a, b) => {
-        // Extract numeric parts from plot numbers (assuming format like "mm001")
-        const numA = parseInt(a.plotNumber.replace(/\D/g, "")),
-          numB = parseInt(b.plotNumber.replace(/\D/g, ""));
-        return numA - numB;
-      });
-
-      return acc;
-    }, {}) || {};
-
-  if (isError) {
-    toast.error(message);
-    dispatch(clearPaymentErrors());
-  }
-
-  const UserStack = ({ users }) => {
+  const UserStack = useCallback(({ users }) => {
     const [expanded, setExpanded] = useState(false);
 
     if (!users || users.length === 0) {
@@ -199,9 +298,6 @@ const PaymentDashboard22 = () => {
         {visibleUsers.map((user) => (
           <div key={user._id} className="text-sm text-gray-900">
             {user.name}
-            {/* <span className="ml-2 text-xs text-gray-500">
-              ({user.email || "No phone"})
-            </span> */}
           </div>
         ))}
         {users.length > 2 && (
@@ -214,9 +310,9 @@ const PaymentDashboard22 = () => {
         )}
       </div>
     );
-  };
+  }, []);
 
-  const UserNumberStack = ({ users }) => {
+  const UserNumberStack = useCallback(({ users }) => {
     const [expanded, setExpanded] = useState(false);
 
     if (!users || users.length === 0) {
@@ -230,9 +326,6 @@ const PaymentDashboard22 = () => {
         {visibleUsers.map((user) => (
           <div key={user._id} className="text-sm text-gray-900">
             {user.mobile}
-            {/* <span className="ml-2 text-xs text-gray-500">
-              ({user.email || "No phone"})
-            </span> */}
           </div>
         ))}
         {users.length > 2 && (
@@ -245,30 +338,41 @@ const PaymentDashboard22 = () => {
         )}
       </div>
     );
-  };
+  }, []);
 
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-2xl font-bold mb-6">Payment Management</h1>
 
       {/* Month Selector */}
-      <div className="mb-4">
-        <label
-          htmlFor="month"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Select Month:
-        </label>
-        <input
-          type="month"
-          id="month"
-          value={selectedMonth}
-          onChange={(e) => setSelectedMonth(e.target.value)}
-          className="block w-full md:w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
-        />
-      </div>
+      <div className="flex flex-col md:flex-row gap-4 mb-6 items-start md:items-end">
+        {/* Month Selector */}
+        <div className="w-full md:w-auto">
+          <label
+            htmlFor="month"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Select Month:
+          </label>
+          <input
+            type="month"
+            id="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="block w-full md:w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
+          />
+        </div>
 
-      {/* Summary Section - Full width below month selector */}
+        {/* Transfer All Button */}
+        <button
+          onClick={handleTransferAllPayments}
+          disabled={paymentsLoading}
+          className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm shadow-md disabled:opacity-50 w-full md:w-auto"
+        >
+          {paymentsLoading ? "Processing..." : "Transfer All to Next Month"}
+        </button>
+      </div>
+      {/* Summary Section */}
       <div className="mb-6 w-full">
         {summary ? (
           <div className="bg-white shadow rounded-lg p-4 w-full">
@@ -309,7 +413,7 @@ const PaymentDashboard22 = () => {
         )}
       </div>
 
-      {/* Rest of your component remains the same */}
+      {/* Locations and Plots */}
       <div className="space-y-4">
         {locations.map((location) => (
           <div
@@ -345,7 +449,6 @@ const PaymentDashboard22 = () => {
 
             {expandedLocation === location._id && (
               <div className="p-4 border-t">
-                {/* Plots Table */}
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -378,15 +481,21 @@ const PaymentDashboard22 = () => {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {plotsByLocation[location._id]?.map((plot) => {
-                        // This will now render plots in sorted order
                         const payment = paymentsByPlotId[plot._id];
-                        const primaryUser = plot.users?.[0];
-
                         return (
                           <tr
                             key={plot._id}
-                            className={!payment ? "bg-yellow-50" : ""}
+                            className={
+                              !payment
+                                ? "bg-yellow-50"
+                                : payment.isPaid
+                                ? "bg-green-300 hover:bg-green-100"
+                                : payment.paidAmount > 0
+                                ? "bg-yellow-50 hover:bg-yellow-100"
+                                : "bg-red-50 hover:bg-red-100"
+                            }
                           >
+                            {/* Table cells */}
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                               {plot.plotNumber}
                             </td>
@@ -397,7 +506,7 @@ const PaymentDashboard22 = () => {
                               <UserNumberStack users={plot.users} />
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {primaryUser?.email || "N/A"}
+                              {plot.users?.[0]?.email || "N/A"}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
                               {payment
@@ -436,7 +545,7 @@ const PaymentDashboard22 = () => {
                               {!payment ? (
                                 <button
                                   onClick={() => handleCreatePayment(plot)}
-                                  className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                                  className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm shadow-md"
                                 >
                                   Add
                                 </button>
@@ -444,25 +553,23 @@ const PaymentDashboard22 = () => {
                                 <>
                                   <button
                                     onClick={() => handlePayNow(payment)}
-                                    className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
+                                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm shadow-md"
                                   >
                                     Pay
                                   </button>
                                   <button
-                                    onClick={() => {
-                                      setCurrentPayment(payment);
-                                      setCurrentPlot(plot);
-                                      setShowPaymentForm(true);
-                                      setFormData({
-                                        expectedAmount: payment.expectedAmount,
-                                        paidAmount: payment.paidAmount,
-                                        dueDate: format(
-                                          new Date(payment.dueDate),
-                                          "yyyy-MM-dd"
-                                        ),
-                                      });
-                                    }}
-                                    className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
+                                    onClick={() =>
+                                      handleTransferPayments(plot._id)
+                                    }
+                                    className="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm shadow-md"
+                                  >
+                                    Transfer
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handleEditPayment(payment, plot)
+                                    }
+                                    className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm shadow-md"
                                   >
                                     Edit
                                   </button>
@@ -470,7 +577,7 @@ const PaymentDashboard22 = () => {
                                     onClick={() =>
                                       handleDeletePayment(payment._id)
                                     }
-                                    className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm"
+                                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm shadow-md"
                                   >
                                     Delete
                                   </button>
@@ -498,6 +605,7 @@ const PaymentDashboard22 = () => {
               {currentPlot.plotNumber}
             </h2>
             <form onSubmit={submitPayment}>
+              {/* Form fields */}
               <div className="mb-4">
                 <label
                   className="block text-gray-700 text-sm font-bold mb-2"
@@ -576,7 +684,6 @@ const PaymentDashboard22 = () => {
   );
 };
 
-// Reusable Summary Card Component
 const SummaryCard = ({ title, value, color }) => {
   const colorClasses = {
     blue: "bg-blue-50 text-blue-800",

@@ -83,7 +83,44 @@ export const transferPayments = createAsyncThunk(
   async (plotId, thunkAPI) => {
     try {
       const token = thunkAPI.getState().auth.user.token;
-      return await paymentService.transferPayments(plotId, token);
+      const response = await paymentService.transferPayments(plotId, token);
+
+      // Get current month/year for refreshing data
+      const currentDate = new Date();
+      const month = currentDate.getMonth() + 1;
+      const year = currentDate.getFullYear();
+
+      // Refresh the monthly data
+      thunkAPI.dispatch(getPaymentsByMonth({ month, year }));
+      thunkAPI.dispatch(getMonthlySummary({ month, year }));
+
+      return {
+        transferredPayments: response.data,
+        count: response.count,
+        month: response.month,
+      };
+    } catch (error) {
+      return thunkAPI.rejectWithValue(handleAsyncError(error));
+    }
+  }
+);
+
+export const transferAllPayments = createAsyncThunk(
+  "payments/transferAll",
+  async (_, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user.token;
+      const response = await paymentService.transferAllPayments(token);
+
+      // Refresh current month's data
+      const currentDate = new Date();
+      const month = currentDate.getMonth() + 1;
+      const year = currentDate.getFullYear();
+
+      thunkAPI.dispatch(getPaymentsByMonth({ month, year }));
+      thunkAPI.dispatch(getMonthlySummary({ month, year }));
+
+      return response;
     } catch (error) {
       return thunkAPI.rejectWithValue(handleAsyncError(error));
     }
@@ -238,9 +275,28 @@ export const paymentSlice = createSlice({
       .addCase(transferPayments.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isSuccess = true;
-        state.payments = [...state.payments, ...action.payload];
+        // Add the new transferred payments to state
+        state.payments = [
+          ...state.payments,
+          ...action.payload.transferredPayments,
+        ];
+        // Show success message through toast in component
       })
       .addCase(transferPayments.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+        // Error message will be shown through toast in component
+      })
+      .addCase(transferAllPayments.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(transferAllPayments.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        // Optionally update state if needed
+      })
+      .addCase(transferAllPayments.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;

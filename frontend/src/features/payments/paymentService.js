@@ -82,9 +82,28 @@ const paymentService = {
       );
       // Clear relevant caches
       requestCache.delete(`plot-${plotId}`);
+      requestCache.delete(
+        `summary-${new Date().getMonth() + 1}-${new Date().getFullYear()}`
+      );
       return response.data;
     } catch (error) {
       console.error("[PaymentService] Transfer payments error:", error);
+      throw error;
+    }
+  },
+
+  transferAllPayments: async (token) => {
+    try {
+      const response = await axios.post(
+        `${API_URL}/transfer-all`,
+        {},
+        createAuthConfig(token)
+      );
+      // Clear all relevant caches
+      requestCache.clear();
+      return response.data;
+    } catch (error) {
+      console.error("[PaymentService] Transfer all payments error:", error);
       throw error;
     }
   },
