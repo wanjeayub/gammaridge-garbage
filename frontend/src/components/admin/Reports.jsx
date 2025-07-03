@@ -7,7 +7,7 @@ import {
   getExpenseSummary,
   getExpensesByMonth,
 } from "../../features/expenses/expenseSlice";
-import expenseService from "../../services/expenseService";
+import expenseService from "../../features/expenses/expenseService";
 import { toast } from "react-hot-toast";
 import {
   BarChart,
