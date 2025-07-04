@@ -6,9 +6,12 @@ import { getUsers } from "../../features/users/userSlice";
 import {
   getExpenseSummary,
   getExpensesByMonth,
+  createExpense,
+  deleteExpense,
 } from "../../features/expenses/expenseSlice";
 import expenseService from "../../features/expenses/expenseService";
 import { toast } from "react-hot-toast";
+import moment from "moment";
 import {
   BarChart,
   Bar,
@@ -34,12 +37,46 @@ const COLORS = [
 
 function Reports() {
   const dispatch = useDispatch();
-  const { summary } = useSelector((state) => state.payments);
-  const { plots } = useSelector((state) => state.plots);
-  const { users } = useSelector((state) => state.users);
-  const { summary: expenseSummary, expenses } = useSelector(
-    (state) => state.expenses
-  );
+  const { user } = useSelector((state) => state.auth);
+
+  // Updated selectors with default values
+  const {
+    summary = {
+      totalExpected: 0,
+      totalPaid: 0,
+      paymentCount: 0,
+      paidCount: 0,
+      partiallyPaidCount: 0,
+      unpaidCount: 0,
+      paymentCompletionRate: 0,
+      amountCompletionRate: 0,
+    },
+    loading: paymentsLoading,
+    error: paymentsError,
+  } = useSelector((state) => state.payments) || {};
+
+  const {
+    plots = [],
+    loading: plotsLoading,
+    error: plotsError,
+  } = useSelector((state) => state.plots) || {};
+
+  const {
+    users = [],
+    loading: usersLoading,
+    error: usersError,
+  } = useSelector((state) => state.users) || {};
+
+  const {
+    summary: expenseSummary = {
+      totalAmount: 0,
+      count: 0,
+      byCategory: [],
+    },
+    expenses = [],
+    loading: expensesLoading,
+    error: expensesError,
+  } = useSelector((state) => state.expenses) || {};
 
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
@@ -67,6 +104,14 @@ function Reports() {
     "December",
   ];
 
+  // Handle errors
+  useEffect(() => {
+    if (paymentsError) toast.error(`Payments: ${paymentsError}`);
+    if (plotsError) toast.error(`Plots: ${plotsError}`);
+    if (usersError) toast.error(`Users: ${usersError}`);
+    if (expensesError) toast.error(`Expenses: ${expensesError}`);
+  }, [paymentsError, plotsError, usersError, expensesError]);
+
   useEffect(() => {
     dispatch(getMonthlySummary({ month: months[month - 1], year }));
     dispatch(getPlots());
@@ -78,10 +123,15 @@ function Reports() {
   const handleGenerateReport = () => {
     dispatch(getMonthlySummary({ month: months[month - 1], year }))
       .unwrap()
-      .catch(toast.error);
+      .catch((error) =>
+        toast.error(error.message || "Failed to load payment summary")
+      );
+
     dispatch(getExpenseSummary({ month: months[month - 1], year }))
       .unwrap()
-      .catch(toast.error);
+      .catch((error) =>
+        toast.error(error.message || "Failed to load expense summary")
+      );
   };
 
   const handleExpenseSubmit = (e) => {
@@ -98,7 +148,36 @@ function Reports() {
         });
         dispatch(getExpenseSummary({ month: months[month - 1], year }));
         dispatch(getExpensesByMonth({ month: months[month - 1], year }));
+      })
+      .catch((error) => {
+        toast.error(error.message || "Failed to create expense");
       });
+  };
+
+  const handleEditExpense = (expense) => {
+    setExpenseData({
+      _id: expense._id,
+      description: expense.description,
+      amount: expense.amount,
+      category: expense.category,
+      date: new Date(expense.date).toISOString().split("T")[0],
+    });
+    setShowExpenseForm(true);
+  };
+
+  const handleDeleteExpense = (expenseId) => {
+    if (window.confirm("Are you sure you want to delete this expense?")) {
+      dispatch(deleteExpense(expenseId))
+        .unwrap()
+        .then(() => {
+          toast.success("Expense deleted successfully");
+          dispatch(getExpenseSummary({ month: months[month - 1], year }));
+          dispatch(getExpensesByMonth({ month: months[month - 1], year }));
+        })
+        .catch((error) => {
+          toast.error(error.message || "Failed to delete expense");
+        });
+    }
   };
 
   const handleExportExpenses = async (format) => {
@@ -110,27 +189,39 @@ function Reports() {
       );
       toast.success(`Expenses exported as ${format.toUpperCase()}`);
     } catch (error) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to export expenses");
     }
   };
 
-  // Data for charts
+  // Data for charts with fallback values
   const paymentData = [
     {
       name: months[month - 1],
-      Expected: summary?.totalExpected || 0,
-      Collected: summary?.totalPaid || 0,
-      Expenses: expenseSummary?.totalAmount || 0,
-      Profit: (summary?.totalPaid || 0) - (expenseSummary?.totalAmount || 0),
+      Expected: summary.totalExpected,
+      Collected: summary.totalPaid,
+      Expenses: expenseSummary.totalAmount,
+      Profit: summary.totalPaid - expenseSummary.totalAmount,
     },
   ];
 
   const userPlotData = plots.map((plot) => ({
     name: `Plot ${plot.plotNumber}`,
-    Users: plot.users.length,
+    Users: plot.users?.length || 0,
   }));
 
-  const expenseByCategoryData = expenseSummary?.byCategory || [];
+  const expenseByCategoryData = expenseSummary.byCategory;
+
+  // Loading state
+  const isLoading =
+    paymentsLoading || expensesLoading || plotsLoading || usersLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -206,19 +297,19 @@ function Reports() {
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="text-sm text-blue-700">Total Expected</p>
                 <p className="text-2xl font-bold">
-                  Ksh {summary?.totalExpected || 0}
+                  Ksh {summary.totalExpected.toLocaleString()}
                 </p>
               </div>
               <div className="bg-green-50 p-4 rounded-lg">
                 <p className="text-sm text-green-700">Total Collected</p>
                 <p className="text-2xl font-bold">
-                  Ksh {summary?.totalPaid || 0}
+                  Ksh {summary.totalPaid.toLocaleString()}
                 </p>
               </div>
               <div className="bg-red-50 p-4 rounded-lg">
                 <p className="text-sm text-red-700">Total Expenses</p>
                 <p className="text-2xl font-bold">
-                  Ksh {expenseSummary?.totalAmount || 0}
+                  Ksh {expenseSummary.totalAmount.toLocaleString()}
                 </p>
               </div>
               <div className="bg-purple-50 p-4 rounded-lg">
@@ -226,9 +317,11 @@ function Reports() {
                 <p className="text-2xl font-bold">
                   Ksh{" "}
                   {(
-                    (summary?.totalPaid || 0) -
-                    (expenseSummary?.totalAmount || 0)
-                  ).toFixed(2)}
+                    summary.totalPaid - expenseSummary.totalAmount
+                  ).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </p>
               </div>
             </div>
@@ -237,17 +330,12 @@ function Reports() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={paymentData}
-                  margin={{
-                    top: 5,
-                    right: 30,
-                    left: 20,
-                    bottom: 5,
-                  }}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip formatter={(value) => value.toLocaleString()} />
                   <Legend />
                   <Bar dataKey="Expected" fill="#8884d8" />
                   <Bar dataKey="Collected" fill="#82ca9d" />
@@ -260,7 +348,54 @@ function Reports() {
         )}
 
         {reportType === "users" && (
-          <div>{/* Existing user distribution code remains the same */}</div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-700 mb-4">
+              User Distribution
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <p className="text-sm text-blue-700">Total Users</p>
+                <p className="text-2xl font-bold">{users.length}</p>
+              </div>
+              <div className="bg-green-50 p-4 rounded-lg">
+                <p className="text-sm text-green-700">Active Users</p>
+                <p className="text-2xl font-bold">
+                  {plots.reduce(
+                    (sum, plot) => sum + (plot.users?.length || 0),
+                    0
+                  )}
+                </p>
+              </div>
+              <div className="bg-purple-50 p-4 rounded-lg">
+                <p className="text-sm text-purple-700">Plots Occupied</p>
+                <p className="text-2xl font-bold">
+                  {plots.filter((plot) => plot.users?.length > 0).length} /{" "}
+                  {plots.length}
+                </p>
+              </div>
+            </div>
+
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={userPlotData.slice(0, 10)}
+                  margin={{
+                    top: 5,
+                    right: 30,
+                    left: 20,
+                    bottom: 5,
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="Users" fill="#8884d8" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         )}
 
         {reportType === "expenses" && (
@@ -280,7 +415,7 @@ function Reports() {
             {showExpenseForm && (
               <div className="bg-gray-50 p-4 rounded-lg mb-6">
                 <h4 className="text-md font-medium text-gray-700 mb-3">
-                  Add New Expense
+                  {expenseData._id ? "Edit Expense" : "Add New Expense"}
                 </h4>
                 <form onSubmit={handleExpenseSubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -311,7 +446,7 @@ function Reports() {
                         onChange={(e) =>
                           setExpenseData({
                             ...expenseData,
-                            amount: parseFloat(e.target.value),
+                            amount: parseFloat(e.target.value) || 0,
                           })
                         }
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
@@ -363,7 +498,15 @@ function Reports() {
                   <div className="flex justify-end space-x-3">
                     <button
                       type="button"
-                      onClick={() => setShowExpenseForm(false)}
+                      onClick={() => {
+                        setShowExpenseForm(false);
+                        setExpenseData({
+                          description: "",
+                          amount: 0,
+                          category: "Fuel",
+                          date: new Date().toISOString().split("T")[0],
+                        });
+                      }}
                       className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
                     >
                       Cancel
@@ -372,7 +515,7 @@ function Reports() {
                       type="submit"
                       className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
                     >
-                      Save Expense
+                      {expenseData._id ? "Update Expense" : "Save Expense"}
                     </button>
                   </div>
                 </form>
@@ -383,30 +526,31 @@ function Reports() {
               <div className="bg-red-50 p-4 rounded-lg">
                 <p className="text-sm text-red-700">Total Expenses</p>
                 <p className="text-2xl font-bold">
-                  Ksh {expenseSummary?.totalAmount || 0}
+                  Ksh {expenseSummary.totalAmount.toLocaleString()}
                 </p>
               </div>
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="text-sm text-blue-700">Expense Count</p>
-                <p className="text-2xl font-bold">
-                  {expenseSummary?.count || 0}
-                </p>
+                <p className="text-2xl font-bold">{expenseSummary.count}</p>
               </div>
               <div className="bg-purple-50 p-4 rounded-lg">
                 <p className="text-sm text-purple-700">Average Expense</p>
                 <p className="text-2xl font-bold">
                   Ksh{" "}
-                  {expenseSummary?.count
+                  {expenseSummary.count > 0
                     ? (
                         expenseSummary.totalAmount / expenseSummary.count
-                      ).toFixed(2)
+                      ).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
                     : "0.00"}
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div className="h-80">
+              <div className="h-64 md:h-80">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -429,12 +573,12 @@ function Reports() {
                         />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip formatter={(value) => value.toLocaleString()} />
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="h-80">
+              <div className="h-64 md:h-80">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={expenseByCategoryData}
@@ -447,9 +591,12 @@ function Reports() {
                     }}
                   >
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
+                    <XAxis
+                      type="number"
+                      tickFormatter={(value) => value.toLocaleString()}
+                    />
                     <YAxis dataKey="category" type="category" />
-                    <Tooltip />
+                    <Tooltip formatter={(value) => value.toLocaleString()} />
                     <Legend />
                     <Bar dataKey="totalAmount" fill="#8884d8" />
                   </BarChart>
@@ -483,7 +630,7 @@ function Reports() {
                     expenses.map((expense) => (
                       <tr key={expense._id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(expense.date).toLocaleDateString()}
+                          {moment(expense.date).format("MMM D, YYYY")}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {expense.description}
@@ -492,13 +639,22 @@ function Reports() {
                           {expense.category}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {expense.amount.toFixed(2)}
+                          {expense.amount.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button className="text-indigo-600 hover:text-indigo-900 mr-3">
+                          <button
+                            onClick={() => handleEditExpense(expense)}
+                            className="text-indigo-600 hover:text-indigo-900 mr-3"
+                          >
                             Edit
                           </button>
-                          <button className="text-red-600 hover:text-red-900">
+                          <button
+                            onClick={() => handleDeleteExpense(expense._id)}
+                            className="text-red-600 hover:text-red-900"
+                          >
                             Delete
                           </button>
                         </td>

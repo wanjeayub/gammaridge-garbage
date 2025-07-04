@@ -7,7 +7,16 @@ import paymentService from "./paymentService";
 
 const initialState = {
   payments: [],
-  summary: null,
+  summary: {
+    totalExpected: 0,
+    totalPaid: 0,
+    paymentCount: 0,
+    paidCount: 0,
+    partiallyPaidCount: 0,
+    unpaidCount: 0,
+    paymentCompletionRate: 0,
+    amountCompletionRate: 0,
+  },
   monthlyPayments: [], // Add this line
   isError: false,
   isSuccess: false,
