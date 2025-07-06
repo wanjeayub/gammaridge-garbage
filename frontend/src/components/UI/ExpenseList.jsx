@@ -47,7 +47,8 @@ const ExpenseList = ({ expenses, onEdit, onDelete, isLoading }) => {
                   {expense.category}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <span>Ksh</span> <span>{expense.amount.toFixed(2)}</span>
+                  <span>Ksh</span>
+                  {expense.amount.toFixed(2)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <button
