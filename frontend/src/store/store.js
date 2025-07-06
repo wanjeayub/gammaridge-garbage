@@ -4,6 +4,7 @@ import userReducer from "../features/users/userSlice";
 import locationReducer from "../features/locations/locationSlice";
 import plotReducer from "../features/plots/plotSlice";
 import paymentReducer from "../features/payments/paymentSlice";
+import expenseReducer from "../features/expenses/expenseSlice";
 
 export const store = configureStore({
   reducer: {
@@ -12,5 +13,6 @@ export const store = configureStore({
     locations: locationReducer,
     plots: plotReducer,
     payments: paymentReducer,
+    expense: expenseReducer,
   },
 });

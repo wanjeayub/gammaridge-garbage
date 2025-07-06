@@ -10,9 +10,9 @@ import AdminDashboard from "./components/admin/Dashboard";
 import AdminUsers from "./components/admin/Users";
 import AdminLocations from "./components/admin/Locations";
 import AdminPlots from "./components/admin/Plots";
-import AdminAssignHouseholds from "./components/admin/AssignHouseholdModal";
-import AdminPayments from "./components/admin/AdminPayments";
-import AdminReports from "./components/admin/Reports";
+// import AdminAssignHouseholds from "./components/admin/AssignHouseholdModal";
+// import AdminPayments from "./components/admin/AdminPayments";
+// import AdminReports from "./components/admin/Reports";
 
 // User routes
 import UserDashboard from "./components/user/Dashboard";
@@ -25,6 +25,7 @@ import AdminDashboardo from "./components/admin/TestAdminPay";
 import PaymentDashboard from "./components/admin/Dashboard22";
 import PaymentDashboard111 from "./components/admin/testing";
 import PaymentDashboard22 from "./components/admin/testing";
+import ExpenseDashboard from "./components/admin/ExpenseDashboard";
 
 function App() {
   return (
@@ -42,7 +43,7 @@ function App() {
           {/* <Route path="assign" element={<AdminAssignHouseholds />} /> */}
           {/* <Route path="debug" element={<PlotDebug />} /> */}
           <Route path="payments" element={<PaymentDashboard22 />} />
-          <Route path="reports" element={<AdminReports />} />
+          <Route path="reports" element={<ExpenseDashboard />} />
         </Route>
 
         <Route path="/user" element={<User />}>

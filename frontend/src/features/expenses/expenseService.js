@@ -2,141 +2,94 @@ import axios from "axios";
 
 const API_URL = "https://tester-server.vercel.app/api/expenses";
 
-// Request cache
-const requestCache = new Map();
-
-const createAuthConfig = (token) => ({
-  headers: { Authorization: `Bearer ${token}` },
+const api = axios.create({
+  baseURL: API_URL,
 });
 
-const expenseService = {
-  getExpensesByMonth: async (month, year, token) => {
-    const cacheKey = `expenses-${month}-${year}`;
-    try {
-      if (requestCache.has(cacheKey)) {
-        return requestCache.get(cacheKey);
-      }
-      const response = await axios.get(
-        `${API_URL}/month/${month}/${year}`,
-        createAuthConfig(token)
-      );
-      requestCache.set(cacheKey, response.data);
-      return response.data;
-    } catch (error) {
-      console.error(`[ExpenseService] Get expenses by month error:`, error);
-      throw error;
-    }
-  },
+const setAuthToken = (token) => {
+  if (token) {
+    api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+  } else {
+    delete api.defaults.headers.common["Authorization"];
+  }
+};
 
-  getExpenseSummary: async (month, year, token) => {
-    const cacheKey = `summary-${month}-${year}`;
-    try {
-      if (requestCache.has(cacheKey)) {
-        return requestCache.get(cacheKey);
-      }
-      const response = await axios.get(
-        `${API_URL}/summary/${month}/${year}`,
-        createAuthConfig(token)
-      );
-      // Ensure response has expected structure
-      const summaryData = {
-        totalAmount: response.data.totalAmount || 0,
-        count: response.data.count || 0,
-        byCategory: response.data.byCategory || [],
-        ...response.data,
-      };
-      requestCache.set(cacheKey, summaryData);
-      return summaryData;
-    } catch (error) {
-      console.error("[ExpenseService] Get expense summary error:", error);
-      throw error;
-    }
-  },
+const expenseService = {
+  setAuthToken,
 
   createExpense: async (expenseData, token) => {
     try {
-      const response = await axios.post(
-        API_URL,
-        expenseData,
-        createAuthConfig(token)
-      );
-      // Clear relevant caches
-      requestCache.forEach((_, key) => {
-        if (key.startsWith("expenses-") || key.startsWith("summary-")) {
-          requestCache.delete(key);
-        }
-      });
+      setAuthToken(token);
+      const response = await api.post("/", expenseData);
       return response.data;
     } catch (error) {
-      console.error("[ExpenseService] Create expense error:", error);
-      throw error;
+      throw error.response?.data || error.message;
     }
   },
 
-  updateExpense: async ({ expenseId, expenseData }, token) => {
+  getExpensesByMonth: async (month, year, token) => {
     try {
-      const response = await axios.put(
-        `${API_URL}/${expenseId}`,
-        expenseData,
-        createAuthConfig(token)
-      );
-      // Clear relevant caches
-      requestCache.forEach((_, key) => {
-        if (key.startsWith("expenses-") || key.startsWith("summary-")) {
-          requestCache.delete(key);
-        }
-      });
+      setAuthToken(token);
+      const response = await api.get(`/?month=${month}&year=${year}`);
       return response.data;
     } catch (error) {
-      console.error("[ExpenseService] Update expense error:", error);
-      throw error;
+      throw error.response?.data || error.message;
     }
   },
 
-  deleteExpense: async (expenseId, token) => {
+  getExpenseSummary: async (month, year, compare = false, token) => {
     try {
-      const response = await axios.delete(
-        `${API_URL}/${expenseId}`,
-        createAuthConfig(token)
+      setAuthToken(token);
+      const response = await api.get(
+        `/summary/${month}/${year}?compareWithPrevious=${compare}`
       );
-      // Clear relevant caches
-      requestCache.forEach((_, key) => {
-        if (key.startsWith("expenses-") || key.startsWith("summary-")) {
-          requestCache.delete(key);
-        }
-      });
       return response.data;
     } catch (error) {
-      console.error("[ExpenseService] Delete expense error:", error);
-      throw error;
+      throw error.response?.data || error.message;
     }
   },
 
-  exportExpenses: async (format, filters, token) => {
+  getAvailableMonths: async (token) => {
     try {
-      const config = {
-        ...createAuthConfig(token),
-        params: filters,
-        responseType: "blob",
-      };
-
-      const response = await axios.get(`${API_URL}/export/${format}`, config);
+      setAuthToken(token);
+      const response = await api.get("/available-months");
       return response.data;
     } catch (error) {
-      console.error("[ExpenseService] Export expenses error:", error);
-      throw error;
+      throw error.response?.data || error.message;
     }
   },
 
-  // Clear cache for specific month/year
-  clearExpenseCache: (month, year) => {
-    requestCache.delete(`expenses-${month}-${year}`);
-    requestCache.delete(`summary-${month}-${year}`);
+  updateExpense: async (id, expenseData, token) => {
+    try {
+      setAuthToken(token);
+      const response = await api.put(`/${id}`, expenseData);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
   },
 
-  // Clear entire cache
-  clearCache: () => {
-    requestCache.clear();
+  deleteExpense: async (id, token) => {
+    try {
+      setAuthToken(token);
+      const response = await api.delete(`/${id}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  exportExpenses: async (format, month, year, token) => {
+    try {
+      setAuthToken(token);
+      window.open(
+        `${API_URL}/export/${format}?month=${month}&year=${year}`,
+        "_blank"
+      );
+      return { success: true };
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
   },
 };
 

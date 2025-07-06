@@ -1,152 +1,191 @@
-import {
-  createSlice,
-  createAsyncThunk,
-  createSelector,
-} from "@reduxjs/toolkit";
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import expenseService from "./expenseService";
+import moment from "moment";
 
-const initialState = {
-  expenses: [],
-  summary: {
-    totalAmount: 0,
-    count: 0,
-    byCategory: [],
-  },
-  isError: false,
-  isSuccess: false,
-  isLoading: false,
-  message: "",
-  summaryLoading: false,
-  summaryError: null,
+const getToken = (thunkAPI) => {
+  return thunkAPI.getState().auth.user.token;
 };
 
-// Helper function for consistent error handling
-const handleAsyncError = (error) => {
-  return (
-    error.response?.data?.message ||
-    error.message ||
-    "An unexpected error occurred"
-  );
-};
+export const createExpense = createAsyncThunk(
+  "expense/create",
+  async (expenseData, thunkAPI) => {
+    try {
+      const token = getToken(thunkAPI);
+      return await expenseService.createExpense(expenseData, token);
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
 
-// Async Thunks
 export const getExpensesByMonth = createAsyncThunk(
-  "expenses/getByMonth",
+  "expense/getByMonth",
   async ({ month, year }, thunkAPI) => {
     try {
-      const token = thunkAPI.getState().auth.user.token;
+      const token = getToken(thunkAPI);
       return await expenseService.getExpensesByMonth(month, year, token);
     } catch (error) {
-      return thunkAPI.rejectWithValue(handleAsyncError(error));
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
     }
   }
 );
 
 export const getExpenseSummary = createAsyncThunk(
-  "expenses/getSummary",
-  async ({ month, year }, thunkAPI) => {
+  "expense/getSummary",
+  async ({ month, year, compare = false }, thunkAPI) => {
     try {
-      const token = thunkAPI.getState().auth.user.token;
-      return await expenseService.getExpenseSummary(month, year, token);
+      const token = getToken(thunkAPI);
+      return await expenseService.getExpenseSummary(
+        month,
+        year,
+        compare,
+        token
+      );
     } catch (error) {
-      return thunkAPI.rejectWithValue(handleAsyncError(error));
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
     }
   }
 );
 
-export const createExpense = createAsyncThunk(
-  "expenses/create",
-  async (expenseData, thunkAPI) => {
+export const getAvailableMonths = createAsyncThunk(
+  "expense/getAvailableMonths",
+  async (_, thunkAPI) => {
     try {
-      const token = thunkAPI.getState().auth.user.token;
-      return await expenseService.createExpense(expenseData, token);
+      const token = getToken(thunkAPI);
+      return await expenseService.getAvailableMonths(token);
     } catch (error) {
-      return thunkAPI.rejectWithValue(handleAsyncError(error));
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
     }
   }
 );
 
 export const updateExpense = createAsyncThunk(
-  "expenses/update",
-  async ({ expenseId, expenseData }, thunkAPI) => {
+  "expense/update",
+  async ({ id, expenseData }, thunkAPI) => {
     try {
-      const token = thunkAPI.getState().auth.user.token;
-      return await expenseService.updateExpense(
-        { expenseId, expenseData },
-        token
-      );
+      const token = getToken(thunkAPI);
+      return await expenseService.updateExpense(id, expenseData, token);
     } catch (error) {
-      return thunkAPI.rejectWithValue(handleAsyncError(error));
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
     }
   }
 );
 
 export const deleteExpense = createAsyncThunk(
-  "expenses/delete",
-  async (expenseId, thunkAPI) => {
+  "expense/delete",
+  async (id, thunkAPI) => {
     try {
-      const token = thunkAPI.getState().auth.user.token;
-      return await expenseService.deleteExpense(expenseId, token);
+      const token = getToken(thunkAPI);
+      return await expenseService.deleteExpense(id, token);
     } catch (error) {
-      return thunkAPI.rejectWithValue(handleAsyncError(error));
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
     }
   }
 );
 
 export const exportExpenses = createAsyncThunk(
-  "expenses/export",
-  async ({ format, filters }, thunkAPI) => {
+  "expense/export",
+  async ({ format, month, year }, thunkAPI) => {
     try {
-      const token = thunkAPI.getState().auth.user.token;
-      return await expenseService.exportExpenses(format, filters, token);
+      const token = getToken(thunkAPI);
+      return await expenseService.exportExpenses(format, month, year, token);
     } catch (error) {
-      return thunkAPI.rejectWithValue(handleAsyncError(error));
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
     }
   }
 );
 
-// Selectors
-export const selectAllExpenses = (state) => state.expenses.expenses;
-export const selectExpenseStatus = (state) => ({
-  isLoading: state.expenses.isLoading,
-  isError: state.expenses.isError,
-  message: state.expenses.message,
-  summaryLoading: state.expenses.summaryLoading,
-  summaryError: state.expenses.summaryError,
-});
+const initialState = {
+  expenses: [],
+  summary: null,
+  availableMonths: [],
+  currentMonth: moment().format("MMMM"),
+  currentYear: moment().format("YYYY"),
+  isLoading: false,
+  isError: false,
+  isSuccess: false,
+  message: "",
+};
 
-export const selectExpensesByCategory = createSelector(
-  [selectAllExpenses, (_, category) => category],
-  (expenses, category) =>
-    expenses.filter((expense) => expense.category === category)
-);
-
-export const selectSummaryData = (state) => ({
-  summary: state.expenses.summary,
-  isLoading: state.expenses.summaryLoading,
-  error: state.expenses.summaryError,
-});
-
-export const expenseSlice = createSlice({
-  name: "expenses",
+const expenseSlice = createSlice({
+  name: "expense",
   initialState,
   reducers: {
-    reset: (state) => initialState,
-    clearExpenseErrors: (state) => {
+    reset: (state) => {
+      state.isLoading = false;
       state.isError = false;
+      state.isSuccess = false;
       state.message = "";
-      state.summaryError = null;
+    },
+    setCurrentMonth: (state, action) => {
+      state.currentMonth = action.payload.month;
+      state.currentYear = action.payload.year;
     },
   },
   extraReducers: (builder) => {
     builder
+      .addCase(createExpense.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(createExpense.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.expenses.unshift(action.payload.data);
+      })
+      .addCase(createExpense.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
       .addCase(getExpensesByMonth.pending, (state) => {
         state.isLoading = true;
       })
       .addCase(getExpensesByMonth.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isSuccess = true;
-        state.expenses = action.payload;
+        state.expenses = action.payload.data;
       })
       .addCase(getExpensesByMonth.rejected, (state, action) => {
         state.isLoading = false;
@@ -154,26 +193,27 @@ export const expenseSlice = createSlice({
         state.message = action.payload;
       })
       .addCase(getExpenseSummary.pending, (state) => {
-        state.summaryLoading = true;
-        state.summaryError = null;
-      })
-      .addCase(getExpenseSummary.fulfilled, (state, action) => {
-        state.summaryLoading = false;
-        state.summary = action.payload;
-      })
-      .addCase(getExpenseSummary.rejected, (state, action) => {
-        state.summaryLoading = false;
-        state.summaryError = action.payload;
-      })
-      .addCase(createExpense.pending, (state) => {
         state.isLoading = true;
       })
-      .addCase(createExpense.fulfilled, (state, action) => {
+      .addCase(getExpenseSummary.fulfilled, (state, action) => {
         state.isLoading = false;
         state.isSuccess = true;
-        state.expenses.push(action.payload);
+        state.summary = action.payload.data;
       })
-      .addCase(createExpense.rejected, (state, action) => {
+      .addCase(getExpenseSummary.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(getAvailableMonths.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(getAvailableMonths.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.availableMonths = action.payload.data;
+      })
+      .addCase(getAvailableMonths.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;
@@ -185,7 +225,9 @@ export const expenseSlice = createSlice({
         state.isLoading = false;
         state.isSuccess = true;
         state.expenses = state.expenses.map((expense) =>
-          expense._id === action.payload._id ? action.payload : expense
+          expense._id === action.payload.data._id
+            ? action.payload.data
+            : expense
         );
       })
       .addCase(updateExpense.rejected, (state, action) => {
@@ -200,22 +242,10 @@ export const expenseSlice = createSlice({
         state.isLoading = false;
         state.isSuccess = true;
         state.expenses = state.expenses.filter(
-          (expense) => expense._id !== action.payload.id
+          (expense) => expense._id !== action.payload.data.id
         );
       })
       .addCase(deleteExpense.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
-      })
-      .addCase(exportExpenses.pending, (state) => {
-        state.isLoading = true;
-      })
-      .addCase(exportExpenses.fulfilled, (state) => {
-        state.isLoading = false;
-        state.isSuccess = true;
-      })
-      .addCase(exportExpenses.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;
@@ -223,5 +253,5 @@ export const expenseSlice = createSlice({
   },
 });
 
-export const { reset, clearExpenseErrors } = expenseSlice.actions;
+export const { reset, setCurrentMonth } = expenseSlice.actions;
 export default expenseSlice.reducer;
