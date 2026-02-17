@@ -1409,8 +1409,8 @@ const PaymentDashboard22 = () => {
         )}
       </div>
 
-      {/* Locations and Plots */}
-      <div className="space-y-4">
+      {/* Locations and Plots - Scrollable Container */}
+      <div className="space-y-4 max-h-[calc(100vh-300px)] overflow-y-auto pr-2 custom-scrollbar">
         {locations?.map((location) => (
           <div
             key={location._id}
@@ -1422,7 +1422,7 @@ const PaymentDashboard22 = () => {
                   expandedLocation === location._id ? null : location._id,
                 )
               }
-              className="w-full flex justify-between items-center p-4 bg-gray-50 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 transition-colors duration-200"
+              className="w-full flex justify-between items-center p-4 bg-gray-50 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 transition-colors duration-200 sticky top-0 z-10"
               aria-expanded={expandedLocation === location._id}
               aria-controls={`location-${location._id}-plots`}
             >
@@ -1453,183 +1453,212 @@ const PaymentDashboard22 = () => {
                 className="p-4 border-t"
               >
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Plot Code
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Plot Owner
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Mobile
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Email
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Expected
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Paid
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {plotsByLocation[location._id]?.map((plot) => {
-                        const payment = paymentsByPlotId[plot._id];
-                        const isTransferring = transferringPlots.has(plot._id);
+                  {/* Responsive Table - Stack on mobile, scroll horizontally on larger screens */}
+                  <div className="min-w-[800px] md:min-w-full">
+                    <table className="w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Plot Code
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Plot Owner
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Mobile
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                            Email
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Expected
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Paid
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Status
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {plotsByLocation[location._id]?.map((plot) => {
+                          const payment = paymentsByPlotId[plot._id];
+                          const isTransferring = transferringPlots.has(
+                            plot._id,
+                          );
 
-                        let rowBgClass = "";
-                        if (!payment) rowBgClass = "bg-yellow-50";
-                        else if (payment.isPaid) rowBgClass = "bg-green-50";
-                        else if (payment.paidAmount > 0)
-                          rowBgClass = "bg-yellow-50";
-                        else rowBgClass = "bg-red-50";
+                          let rowBgClass = "";
+                          if (!payment) rowBgClass = "bg-yellow-50";
+                          else if (payment.isPaid) rowBgClass = "bg-green-50";
+                          else if (payment.paidAmount > 0)
+                            rowBgClass = "bg-yellow-50";
+                          else rowBgClass = "bg-red-50";
 
-                        return (
-                          <tr
-                            key={plot._id}
-                            className={`${rowBgClass} hover:bg-opacity-75 transition-colors duration-150`}
-                          >
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {plot.plotNumber}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <UserStack users={plot.users} />
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <UserNumberStack users={plot.users} />
-                            </td>
-                            <td
-                              className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 truncate max-w-[150px]"
-                              title={plot.users?.[0]?.email}
+                          return (
+                            <tr
+                              key={plot._id}
+                              className={`${rowBgClass} hover:bg-opacity-75 transition-colors duration-150`}
                             >
-                              {plot.users?.[0]?.email || "N/A"}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                              {payment
-                                ? formatCurrency(payment.expectedAmount)
-                                : "N/A"}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                              {payment
-                                ? formatCurrency(payment.paidAmount)
-                                : "N/A"}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              {payment ? (
-                                <span
-                                  className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                    payment.isPaid
-                                      ? "bg-green-100 text-green-800"
+                              <td
+                                className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900"
+                                data-label="Plot Code"
+                              >
+                                {plot.plotNumber}
+                              </td>
+                              <td
+                                className="px-6 py-4 whitespace-nowrap"
+                                data-label="Owner"
+                              >
+                                <UserStack users={plot.users} />
+                              </td>
+                              <td
+                                className="px-6 py-4 whitespace-nowrap text-sm text-gray-500"
+                                data-label="Mobile"
+                              >
+                                <UserNumberStack users={plot.users} />
+                              </td>
+                              <td
+                                className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 truncate max-w-[150px] hidden md:table-cell"
+                                data-label="Email"
+                                title={plot.users?.[0]?.email}
+                              >
+                                {plot.users?.[0]?.email || "N/A"}
+                              </td>
+                              <td
+                                className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600"
+                                data-label="Expected"
+                              >
+                                {payment
+                                  ? formatCurrency(payment.expectedAmount)
+                                  : "N/A"}
+                              </td>
+                              <td
+                                className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600"
+                                data-label="Paid"
+                              >
+                                {payment
+                                  ? formatCurrency(payment.paidAmount)
+                                  : "N/A"}
+                              </td>
+                              <td
+                                className="px-6 py-4 whitespace-nowrap"
+                                data-label="Status"
+                              >
+                                {payment ? (
+                                  <span
+                                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                      payment.isPaid
+                                        ? "bg-green-100 text-green-800"
+                                        : payment.paidAmount > 0
+                                          ? "bg-yellow-100 text-yellow-800"
+                                          : "bg-red-100 text-red-800"
+                                    }`}
+                                  >
+                                    {payment.isPaid
+                                      ? "Paid"
                                       : payment.paidAmount > 0
-                                        ? "bg-yellow-100 text-yellow-800"
-                                        : "bg-red-100 text-red-800"
-                                  }`}
-                                >
-                                  {payment.isPaid
-                                    ? "Paid"
-                                    : payment.paidAmount > 0
-                                      ? "Partial"
-                                      : "Unpaid"}
-                                </span>
-                              ) : (
-                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                                  No Payment
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-1">
-                              {!payment ? (
-                                <button
-                                  onClick={() => openModal("create", plot)}
-                                  disabled={isLoading}
-                                  className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                                  aria-label={`Add payment for plot ${plot.plotNumber}`}
-                                >
-                                  Add
-                                </button>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() =>
-                                      openModal("pay", plot, payment)
-                                    }
-                                    disabled={isLoading || payment.isPaid}
-                                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                                    aria-label={`Pay for plot ${plot.plotNumber}`}
-                                  >
-                                    Pay
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      handleTransferPayments(plot._id)
-                                    }
-                                    disabled={isLoading || isTransferring}
-                                    className="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                                    aria-label={`Transfer payments for plot ${plot.plotNumber}`}
-                                  >
-                                    {isTransferring ? (
-                                      <svg
-                                        className="animate-spin h-4 w-4 text-white"
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
+                                        ? "Partial"
+                                        : "Unpaid"}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                    No Payment
+                                  </span>
+                                )}
+                              </td>
+                              <td
+                                className="px-6 py-4 whitespace-nowrap text-sm font-medium"
+                                data-label="Actions"
+                              >
+                                <div className="flex flex-wrap gap-1">
+                                  {!payment ? (
+                                    <button
+                                      onClick={() => openModal("create", plot)}
+                                      disabled={isLoading}
+                                      className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                                      aria-label={`Add payment for plot ${plot.plotNumber}`}
+                                    >
+                                      Add
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={() =>
+                                          openModal("pay", plot, payment)
+                                        }
+                                        disabled={isLoading || payment.isPaid}
+                                        className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                                        aria-label={`Pay for plot ${plot.plotNumber}`}
                                       >
-                                        <circle
-                                          className="opacity-25"
-                                          cx="12"
-                                          cy="12"
-                                          r="10"
-                                          stroke="currentColor"
-                                          strokeWidth="4"
-                                        ></circle>
-                                        <path
-                                          className="opacity-75"
-                                          fill="currentColor"
-                                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                        ></path>
-                                      </svg>
-                                    ) : (
-                                      "Transfer"
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      openModal("edit", plot, payment)
-                                    }
-                                    disabled={isLoading}
-                                    className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                                    aria-label={`Edit payment for plot ${plot.plotNumber}`}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      handleDeletePayment(payment, plot)
-                                    }
-                                    disabled={isLoading}
-                                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                                    aria-label={`Delete payment for plot ${plot.plotNumber}`}
-                                  >
-                                    Delete
-                                  </button>
-                                </>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                                        Pay
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          handleTransferPayments(plot._id)
+                                        }
+                                        disabled={isLoading || isTransferring}
+                                        className="px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                                        aria-label={`Transfer payments for plot ${plot.plotNumber}`}
+                                      >
+                                        {isTransferring ? (
+                                          <svg
+                                            className="animate-spin h-3 w-3 text-white"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                          >
+                                            <circle
+                                              className="opacity-25"
+                                              cx="12"
+                                              cy="12"
+                                              r="10"
+                                              stroke="currentColor"
+                                              strokeWidth="4"
+                                            ></circle>
+                                            <path
+                                              className="opacity-75"
+                                              fill="currentColor"
+                                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                            ></path>
+                                          </svg>
+                                        ) : (
+                                          "Xfer"
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          openModal("edit", plot, payment)
+                                        }
+                                        disabled={isLoading}
+                                        className="px-2 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                                        aria-label={`Edit payment for plot ${plot.plotNumber}`}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          handleDeletePayment(payment, plot)
+                                        }
+                                        disabled={isLoading}
+                                        className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                                        aria-label={`Delete payment for plot ${plot.plotNumber}`}
+                                      >
+                                        Del
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
@@ -1640,7 +1669,7 @@ const PaymentDashboard22 = () => {
       {/* Modal */}
       {renderModal()}
 
-      {/* Add animation styles */}
+      {/* Add animation and scrollbar styles */}
       <style jsx>{`
         @keyframes fadeIn {
           from {
@@ -1654,6 +1683,81 @@ const PaymentDashboard22 = () => {
         }
         .animate-fadeIn {
           animation: fadeIn 0.2s ease-out;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 10px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 10px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
+
+        /* For Firefox */
+        .custom-scrollbar {
+          scrollbar-width: thin;
+          scrollbar-color: #888 #f1f1f1;
+        }
+
+        /* Responsive table styles */
+        @media (max-width: 768px) {
+          .min-w-\\[800px\\] {
+            min-width: 100%;
+          }
+
+          /* Stack table cells on mobile */
+          table {
+            display: block;
+          }
+
+          thead {
+            display: none; /* Hide headers on mobile */
+          }
+
+          tbody {
+            display: block;
+          }
+
+          tr {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 8px;
+            border-radius: 8px;
+          }
+
+          td {
+            display: flex;
+            flex-direction: column;
+            padding: 4px !important;
+            white-space: normal !important;
+            border: none !important;
+          }
+
+          td:before {
+            content: attr(data-label);
+            font-weight: 600;
+            font-size: 10px;
+            color: #6b7280;
+            margin-bottom: 2px;
+          }
+
+          /* Remove table row dividers */
+          .divide-y > :not([hidden]) ~ :not([hidden]) {
+            border-top-width: 0;
+          }
         }
       `}</style>
     </div>
