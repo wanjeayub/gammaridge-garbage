@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { toast } from "react-hot-toast";
+import toast from "react-hot-toast";
 import {
   transferPayments,
   getPaymentsByMonth,
@@ -17,14 +17,7 @@ import { format, parseISO, isValid } from "date-fns";
 
 // Constants
 const DEBOUNCE_DELAY = 300;
-const TOAST_CONFIG = {
-  position: "top-right",
-  autoClose: 5000,
-  hideProgressBar: false,
-  closeOnClick: true,
-  pauseOnHover: true,
-  draggable: true,
-};
+const TOAST_DURATION = 5000;
 
 const PaymentDashboard22 = () => {
   const dispatch = useDispatch();
@@ -50,14 +43,21 @@ const PaymentDashboard22 = () => {
     format(new Date(), "yyyy-MM"),
   );
   const [expandedLocation, setExpandedLocation] = useState(null);
-  const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [currentPayment, setCurrentPayment] = useState(null);
-  const [currentPlot, setCurrentPlot] = useState(null);
+
+  // Modal states
+  const [modalState, setModalState] = useState({
+    isOpen: false,
+    type: null, // 'create', 'pay', 'edit', 'delete'
+    plot: null,
+    payment: null,
+  });
+
   const [formData, setFormData] = useState({
     expectedAmount: "",
     paidAmount: "0",
     dueDate: format(new Date(), "yyyy-MM-dd"),
   });
+
   const [formErrors, setFormErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transferringPlots, setTransferringPlots] = useState(new Set());
@@ -98,6 +98,8 @@ const PaymentDashboard22 = () => {
           return;
         }
 
+        const loadingToast = toast.loading("Loading payment data...");
+
         await Promise.all([
           dispatch(
             getPaymentsByMonth({ month: monthNum, year: yearNum }),
@@ -108,9 +110,11 @@ const PaymentDashboard22 = () => {
           dispatch(getPlots()).unwrap(),
           dispatch(getLocations()).unwrap(),
         ]);
+
+        toast.dismiss(loadingToast);
       } catch (error) {
         if (error.name !== "AbortError" && isMounted.current) {
-          toast.error(error.message || "Failed to load data", TOAST_CONFIG);
+          toast.error(error.message || "Failed to load data");
         }
       }
     };
@@ -122,7 +126,7 @@ const PaymentDashboard22 = () => {
   // Handle errors
   useEffect(() => {
     if (isError && message && isMounted.current) {
-      toast.error(message, TOAST_CONFIG);
+      toast.error(message);
       dispatch(clearPaymentErrors());
     }
   }, [isError, message, dispatch]);
@@ -131,24 +135,33 @@ const PaymentDashboard22 = () => {
   const formatCurrency = useCallback((amount) => {
     if (amount === null || amount === undefined || isNaN(amount))
       return "Ksh 0.00";
-    return `Ksh ${Number(amount).toFixed(2)}`;
+    return `Ksh ${Number(amount).toLocaleString("en-KE", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
   }, []);
 
   // Validate payment form
-  const validatePaymentForm = useCallback((data) => {
+  const validatePaymentForm = useCallback((data, type) => {
     const errors = {};
     const expected = parseFloat(data.expectedAmount);
     const paid = parseFloat(data.paidAmount);
 
-    if (isNaN(expected) || expected <= 0) {
-      errors.expectedAmount = "Expected amount must be greater than 0";
+    if (type !== "pay") {
+      if (isNaN(expected) || expected <= 0) {
+        errors.expectedAmount = "Expected amount must be greater than 0";
+      }
     }
 
     if (isNaN(paid) || paid < 0) {
       errors.paidAmount = "Paid amount must be a positive number";
     }
 
-    if (paid > expected) {
+    if (type === "pay" && paid <= 0) {
+      errors.paidAmount = "Payment amount must be greater than 0";
+    }
+
+    if (type !== "pay" && paid > expected) {
       errors.paidAmount = "Paid amount cannot exceed expected amount";
     }
 
@@ -168,22 +181,81 @@ const PaymentDashboard22 = () => {
     async (plotId) => {
       if (transferringPlots.has(plotId)) return;
 
-      if (
-        !window.confirm(
-          "Transfer all payments to next month? This will overwrite any existing transferred payments for next month.",
-        )
-      ) {
-        return;
-      }
+      const plot = plots?.find((p) => p._id === plotId);
+      const plotNumber = plot?.plotNumber || "Unknown";
+
+      const confirmed = await new Promise((resolve) => {
+        toast.custom(
+          (t) => (
+            <div className="max-w-md w-full bg-white shadow-lg rounded-lg pointer-events-auto flex flex-col border border-gray-200">
+              <div className="p-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0 pt-0.5">
+                    <svg
+                      className="h-6 w-6 text-yellow-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                  </div>
+                  <div className="ml-3 flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      Transfer Payments - Plot {plotNumber}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Transfer all payments to next month? This will overwrite
+                      any existing transferred payments for next month.
+                    </p>
+                    <div className="mt-4 flex space-x-3">
+                      <button
+                        onClick={() => {
+                          toast.dismiss(t.id);
+                          resolve(true);
+                        }}
+                        className="flex-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        Transfer
+                      </button>
+                      <button
+                        onClick={() => {
+                          toast.dismiss(t.id);
+                          resolve(false);
+                        }}
+                        className="flex-1 px-3 py-2 bg-gray-100 text-gray-800 text-sm font-medium rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ),
+          { duration: Infinity },
+        );
+      });
+
+      if (!confirmed) return;
 
       setTransferringPlots((prev) => new Set(prev).add(plotId));
+
+      const processingToast = toast.loading(
+        `Transferring payments for plot ${plotNumber}...`,
+      );
 
       try {
         const result = await dispatch(transferPayments(plotId)).unwrap();
 
+        toast.dismiss(processingToast);
         toast.success(
           `Successfully transferred ${result.count} payment(s) to ${result.month}`,
-          TOAST_CONFIG,
         );
 
         // Refresh data
@@ -200,10 +272,8 @@ const PaymentDashboard22 = () => {
           ).unwrap(),
         ]);
       } catch (error) {
-        toast.error(
-          error.message || "Failed to transfer payments",
-          TOAST_CONFIG,
-        );
+        toast.dismiss(processingToast);
+        toast.error(error.message || "Failed to transfer payments");
       } finally {
         if (isMounted.current) {
           setTransferringPlots((prev) => {
@@ -214,26 +284,81 @@ const PaymentDashboard22 = () => {
         }
       }
     },
-    [dispatch, selectedMonth, transferringPlots],
+    [dispatch, selectedMonth, transferringPlots, plots],
   );
 
   const handleTransferAllPayments = useCallback(async () => {
     if (paymentsLoading) return;
 
-    if (
-      !window.confirm(
-        "Transfer ALL payments to next month? This will overwrite any existing transferred payments for next month across all plots.",
-      )
-    ) {
-      return;
-    }
+    const confirmed = await new Promise((resolve) => {
+      toast.custom(
+        (t) => (
+          <div className="max-w-md w-full bg-white shadow-lg rounded-lg pointer-events-auto flex flex-col border border-gray-200">
+            <div className="p-4">
+              <div className="flex items-start">
+                <div className="flex-shrink-0 pt-0.5">
+                  <svg
+                    className="h-6 w-6 text-red-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
+                  </svg>
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-medium text-gray-900">
+                    Transfer All Payments
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Transfer ALL payments to next month? This will overwrite any
+                    existing transferred payments for next month across all
+                    plots.
+                  </p>
+                  <div className="mt-4 flex space-x-3">
+                    <button
+                      onClick={() => {
+                        toast.dismiss(t.id);
+                        resolve(true);
+                      }}
+                      className="flex-1 px-3 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      Transfer All
+                    </button>
+                    <button
+                      onClick={() => {
+                        toast.dismiss(t.id);
+                        resolve(false);
+                      }}
+                      className="flex-1 px-3 py-2 bg-gray-100 text-gray-800 text-sm font-medium rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ),
+        { duration: Infinity },
+      );
+    });
+
+    if (!confirmed) return;
+
+    const processingToast = toast.loading("Transferring all payments...");
 
     try {
       const result = await dispatch(transferAllPayments()).unwrap();
 
+      toast.dismiss(processingToast);
       toast.success(
         `Successfully transferred ${result.totalTransferred} payments across ${result.results.length} plots to ${result.month}`,
-        TOAST_CONFIG,
       );
 
       // Refresh data
@@ -247,7 +372,8 @@ const PaymentDashboard22 = () => {
         ).unwrap(),
       ]);
     } catch (error) {
-      toast.error(error.message || "Failed to transfer payments", TOAST_CONFIG);
+      toast.dismiss(processingToast);
+      toast.error(error.message || "Failed to transfer payments");
     }
   }, [dispatch, selectedMonth, paymentsLoading]);
 
@@ -266,12 +392,46 @@ const PaymentDashboard22 = () => {
     }));
   }, []);
 
-  // Handle payment creation
-  const handleCreatePayment = useCallback((plot) => {
-    setCurrentPlot(plot);
-    setCurrentPayment(null);
+  // Modal handlers
+  const openModal = useCallback((type, plot, payment = null) => {
+    setModalState({
+      isOpen: true,
+      type,
+      plot,
+      payment,
+    });
+
     setFormErrors({});
-    setShowPaymentForm(true);
+
+    if (type === "pay") {
+      setFormData({
+        expectedAmount: payment.expectedAmount.toString(),
+        paidAmount: "",
+        dueDate: format(parseISO(payment.dueDate), "yyyy-MM-dd"),
+      });
+    } else if (type === "edit") {
+      setFormData({
+        expectedAmount: payment.expectedAmount.toString(),
+        paidAmount: payment.paidAmount.toString(),
+        dueDate: format(parseISO(payment.dueDate), "yyyy-MM-dd"),
+      });
+    } else if (type === "create") {
+      setFormData({
+        expectedAmount: "",
+        paidAmount: "0",
+        dueDate: format(new Date(), "yyyy-MM-dd"),
+      });
+    }
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setModalState({
+      isOpen: false,
+      type: null,
+      plot: null,
+      payment: null,
+    });
+    setFormErrors({});
     setFormData({
       expectedAmount: "",
       paidAmount: "0",
@@ -279,106 +439,68 @@ const PaymentDashboard22 = () => {
     });
   }, []);
 
-  // Handle payment update
-  const handlePayNow = useCallback((payment) => {
-    setCurrentPayment(payment);
-    setCurrentPlot(payment.plot);
-    setFormErrors({});
-    setShowPaymentForm(true);
-    setFormData({
-      expectedAmount: payment.expectedAmount.toString(),
-      paidAmount: payment.paidAmount.toString(),
-      dueDate: format(parseISO(payment.dueDate), "yyyy-MM-dd"),
-    });
-  }, []);
-
-  // Handle payment edit
-  const handleEditPayment = useCallback((payment, plot) => {
-    setCurrentPayment(payment);
-    setCurrentPlot(plot);
-    setFormErrors({});
-    setShowPaymentForm(true);
-    setFormData({
-      expectedAmount: payment.expectedAmount.toString(),
-      paidAmount: payment.paidAmount.toString(),
-      dueDate: format(parseISO(payment.dueDate), "yyyy-MM-dd"),
-    });
-  }, []);
-
-  // Handle payment deletion
-  const handleDeletePayment = useCallback(
-    async (paymentId) => {
-      if (!window.confirm("Are you sure you want to delete this payment?")) {
-        return;
-      }
-
-      try {
-        await dispatch(deletePayment(paymentId)).unwrap();
-        toast.success("Payment deleted successfully", TOAST_CONFIG);
-
-        const [year, month] = selectedMonth.split("-");
-        await Promise.all([
-          dispatch(
-            getPaymentsByMonth({
-              month: parseInt(month),
-              year: parseInt(year),
-            }),
-          ).unwrap(),
-          dispatch(
-            getMonthlySummary({ month: parseInt(month), year: parseInt(year) }),
-          ).unwrap(),
-        ]);
-      } catch (error) {
-        toast.error(error.message || "Failed to delete payment", TOAST_CONFIG);
-      }
-    },
-    [dispatch, selectedMonth],
-  );
-
   // Submit payment
   const submitPayment = useCallback(
     async (e) => {
       e.preventDefault();
 
       // Validate form
-      const errors = validatePaymentForm(formData);
+      const errors = validatePaymentForm(formData, modalState.type);
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
-        toast.error("Please fix the errors in the form", TOAST_CONFIG);
+        toast.error("Please fix the errors in the form");
         return;
       }
 
       setIsSubmitting(true);
+      const processingToast = toast.loading(
+        modalState.type === "pay"
+          ? "Processing payment..."
+          : modalState.type === "edit"
+            ? "Updating payment..."
+            : "Creating payment...",
+      );
 
       try {
         const paymentData = {
-          expectedAmount: parseFloat(formData.expectedAmount),
+          expectedAmount:
+            modalState.type === "pay"
+              ? modalState.payment.expectedAmount
+              : parseFloat(formData.expectedAmount),
           paidAmount: parseFloat(formData.paidAmount),
           dueDate: formData.dueDate,
           isPaid:
             parseFloat(formData.paidAmount) >=
-            parseFloat(formData.expectedAmount),
+            (modalState.type === "pay"
+              ? modalState.payment.expectedAmount
+              : parseFloat(formData.expectedAmount)),
         };
 
-        if (currentPayment) {
+        if (modalState.type === "pay" || modalState.type === "edit") {
           await dispatch(
             updatePayment({
-              paymentId: currentPayment._id,
+              paymentId: modalState.payment._id,
               paymentData,
             }),
           ).unwrap();
-          toast.success("Payment updated successfully", TOAST_CONFIG);
+          toast.dismiss(processingToast);
+          toast.success(
+            modalState.type === "pay"
+              ? `Payment of ${formatCurrency(parseFloat(formData.paidAmount))} recorded successfully`
+              : "Payment updated successfully",
+          );
         } else {
           await dispatch(
             createPayment({
-              plot: currentPlot._id,
+              plot: modalState.plot._id,
               ...paymentData,
             }),
           ).unwrap();
-          toast.success("Payment created successfully", TOAST_CONFIG);
+          toast.dismiss(processingToast);
+          toast.success("Payment created successfully");
         }
 
-        setShowPaymentForm(false);
+        closeModal();
 
         const [year, month] = selectedMonth.split("-");
         await Promise.all([
@@ -393,7 +515,8 @@ const PaymentDashboard22 = () => {
           ).unwrap(),
         ]);
       } catch (error) {
-        toast.error(error.message || "Payment operation failed", TOAST_CONFIG);
+        toast.dismiss(processingToast);
+        toast.error(error.message || "Payment operation failed");
       } finally {
         if (isMounted.current) {
           setIsSubmitting(false);
@@ -401,13 +524,105 @@ const PaymentDashboard22 = () => {
       }
     },
     [
-      currentPayment,
-      currentPlot,
-      dispatch,
+      modalState,
       formData,
       selectedMonth,
+      dispatch,
       validatePaymentForm,
+      formatCurrency,
+      closeModal,
     ],
+  );
+
+  // Handle payment deletion
+  const handleDeletePayment = useCallback(
+    async (payment, plot) => {
+      const confirmed = await new Promise((resolve) => {
+        toast.custom(
+          (t) => (
+            <div className="max-w-md w-full bg-white shadow-lg rounded-lg pointer-events-auto flex flex-col border border-gray-200">
+              <div className="p-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0 pt-0.5">
+                    <svg
+                      className="h-6 w-6 text-red-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                  </div>
+                  <div className="ml-3 flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      Delete Payment - Plot {plot.plotNumber}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Are you sure you want to delete this payment of{" "}
+                      {formatCurrency(payment.expectedAmount)}? This action
+                      cannot be undone.
+                    </p>
+                    <div className="mt-4 flex space-x-3">
+                      <button
+                        onClick={() => {
+                          toast.dismiss(t.id);
+                          resolve(true);
+                        }}
+                        className="flex-1 px-3 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => {
+                          toast.dismiss(t.id);
+                          resolve(false);
+                        }}
+                        className="flex-1 px-3 py-2 bg-gray-100 text-gray-800 text-sm font-medium rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ),
+          { duration: Infinity },
+        );
+      });
+
+      if (!confirmed) return;
+
+      const processingToast = toast.loading("Deleting payment...");
+
+      try {
+        await dispatch(deletePayment(payment._id)).unwrap();
+        toast.dismiss(processingToast);
+        toast.success("Payment deleted successfully");
+
+        const [year, month] = selectedMonth.split("-");
+        await Promise.all([
+          dispatch(
+            getPaymentsByMonth({
+              month: parseInt(month),
+              year: parseInt(year),
+            }),
+          ).unwrap(),
+          dispatch(
+            getMonthlySummary({ month: parseInt(month), year: parseInt(year) }),
+          ).unwrap(),
+        ]);
+      } catch (error) {
+        toast.dismiss(processingToast);
+        toast.error(error.message || "Failed to delete payment");
+      }
+    },
+    [dispatch, selectedMonth, formatCurrency],
   );
 
   // Memoized calculations
@@ -523,6 +738,272 @@ const PaymentDashboard22 = () => {
       </div>
     );
   }, []);
+
+  // Render modal based on type
+  const renderModal = () => {
+    if (!modalState.isOpen) return null;
+
+    const { type, plot, payment } = modalState;
+    const plotNumber = plot?.plotNumber || "Unknown";
+    const plotLocation = plot?.location?.name || "Unknown Location";
+    const plotUsers = plot?.users || [];
+
+    const getModalTitle = () => {
+      switch (type) {
+        case "pay":
+          return `Record Payment - Plot ${plotNumber}`;
+        case "edit":
+          return `Edit Payment - Plot ${plotNumber}`;
+        case "create":
+          return `Create New Payment - Plot ${plotNumber}`;
+        default:
+          return "";
+      }
+    };
+
+    const getModalDescription = () => {
+      if (type === "pay") {
+        return `Expected amount: ${formatCurrency(payment.expectedAmount)}`;
+      }
+      return null;
+    };
+
+    return (
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) closeModal();
+        }}
+      >
+        <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
+          {/* Modal Header with Plot Details */}
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold text-gray-800">
+              {getModalTitle()}
+            </h2>
+
+            {/* Plot Information Card */}
+            <div className="mt-3 bg-gray-50 rounded-lg p-3 border border-gray-200">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-gray-500">Location:</span>
+                  <span className="ml-2 font-medium text-gray-900">
+                    {plotLocation}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Plot:</span>
+                  <span className="ml-2 font-medium text-gray-900">
+                    {plotNumber}
+                  </span>
+                </div>
+                {plotUsers.length > 0 && (
+                  <div className="col-span-2">
+                    <span className="text-gray-500">Owner:</span>
+                    <span className="ml-2 font-medium text-gray-900">
+                      {plotUsers[0]?.name || "N/A"}
+                      {plotUsers.length > 1 && ` +${plotUsers.length - 1} more`}
+                    </span>
+                  </div>
+                )}
+                {plotUsers[0]?.mobile && (
+                  <div className="col-span-2">
+                    <span className="text-gray-500">Mobile:</span>
+                    <span className="ml-2 text-gray-900">
+                      {plotUsers[0].mobile}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal specific description */}
+            {getModalDescription() && (
+              <p className="mt-2 text-sm text-gray-600 bg-blue-50 p-2 rounded">
+                {getModalDescription()}
+              </p>
+            )}
+          </div>
+
+          <form onSubmit={submitPayment} noValidate>
+            {/* Expected Amount - Show but disable for 'pay' modal */}
+            {(type === "create" || type === "edit") && (
+              <div className="mb-4">
+                <label
+                  className="block text-gray-700 text-sm font-bold mb-2"
+                  htmlFor="expectedAmount"
+                >
+                  Expected Amount (Ksh) *
+                </label>
+                <input
+                  type="number"
+                  id="expectedAmount"
+                  name="expectedAmount"
+                  value={formData.expectedAmount}
+                  onChange={handleInputChange}
+                  className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
+                    formErrors.expectedAmount ? "border-red-500" : ""
+                  }`}
+                  required
+                  step="0.01"
+                  min="0.01"
+                  disabled={isSubmitting}
+                  placeholder="Enter expected amount"
+                  aria-describedby={
+                    formErrors.expectedAmount
+                      ? "expectedAmount-error"
+                      : undefined
+                  }
+                />
+                {formErrors.expectedAmount && (
+                  <p
+                    id="expectedAmount-error"
+                    className="text-red-500 text-xs mt-1"
+                  >
+                    {formErrors.expectedAmount}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Paid Amount - Different labels for different modals */}
+            <div className="mb-4">
+              <label
+                className="block text-gray-700 text-sm font-bold mb-2"
+                htmlFor="paidAmount"
+              >
+                {type === "pay"
+                  ? "Payment Amount (Ksh) *"
+                  : "Paid Amount (Ksh) *"}
+              </label>
+              <div className="relative">
+                {type === "pay" && (
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-500 sm:text-sm">Ksh</span>
+                  </div>
+                )}
+                <input
+                  type="number"
+                  id="paidAmount"
+                  name="paidAmount"
+                  value={formData.paidAmount}
+                  onChange={handleInputChange}
+                  className={`shadow appearance-none border rounded w-full py-2 ${
+                    type === "pay" ? "pl-12" : "px-3"
+                  } text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
+                    formErrors.paidAmount ? "border-red-500" : ""
+                  }`}
+                  required
+                  step="0.01"
+                  min={type === "pay" ? "0.01" : "0"}
+                  disabled={isSubmitting}
+                  placeholder={
+                    type === "pay"
+                      ? "Enter payment amount"
+                      : "Enter paid amount"
+                  }
+                  autoFocus={type === "pay"}
+                  aria-describedby={
+                    formErrors.paidAmount ? "paidAmount-error" : undefined
+                  }
+                />
+              </div>
+              {formErrors.paidAmount && (
+                <p id="paidAmount-error" className="text-red-500 text-xs mt-1">
+                  {formErrors.paidAmount}
+                </p>
+              )}
+            </div>
+
+            {/* Due Date */}
+            <div className="mb-6">
+              <label
+                className="block text-gray-700 text-sm font-bold mb-2"
+                htmlFor="dueDate"
+              >
+                Due Date *
+              </label>
+              <input
+                type="date"
+                id="dueDate"
+                name="dueDate"
+                value={formData.dueDate}
+                onChange={handleInputChange}
+                className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
+                  formErrors.dueDate ? "border-red-500" : ""
+                }`}
+                required
+                disabled={isSubmitting}
+                aria-describedby={
+                  formErrors.dueDate ? "dueDate-error" : undefined
+                }
+              />
+              {formErrors.dueDate && (
+                <p id="dueDate-error" className="text-red-500 text-xs mt-1">
+                  {formErrors.dueDate}
+                </p>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors duration-200"
+                disabled={isSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={`px-4 py-2 text-white rounded focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
+                  type === "pay"
+                    ? "bg-green-600 hover:bg-green-700 focus:ring-green-500"
+                    : type === "edit"
+                      ? "bg-yellow-500 hover:bg-yellow-600 focus:ring-yellow-500"
+                      : "bg-blue-500 hover:bg-blue-600 focus:ring-blue-500"
+                }`}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center">
+                    <svg
+                      className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    Processing...
+                  </span>
+                ) : type === "pay" ? (
+                  "Record Payment"
+                ) : type === "edit" ? (
+                  "Update Payment"
+                ) : (
+                  "Create Payment"
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="container mx-auto p-4 max-w-7xl">
@@ -741,7 +1222,7 @@ const PaymentDashboard22 = () => {
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-1">
                               {!payment ? (
                                 <button
-                                  onClick={() => handleCreatePayment(plot)}
+                                  onClick={() => openModal("create", plot)}
                                   disabled={isLoading}
                                   className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                   aria-label={`Add payment for plot ${plot.plotNumber}`}
@@ -751,7 +1232,9 @@ const PaymentDashboard22 = () => {
                               ) : (
                                 <>
                                   <button
-                                    onClick={() => handlePayNow(payment)}
+                                    onClick={() =>
+                                      openModal("pay", plot, payment)
+                                    }
                                     disabled={isLoading || payment.isPaid}
                                     className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                     aria-label={`Pay for plot ${plot.plotNumber}`}
@@ -766,11 +1249,34 @@ const PaymentDashboard22 = () => {
                                     className="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                     aria-label={`Transfer payments for plot ${plot.plotNumber}`}
                                   >
-                                    {isTransferring ? "..." : "Transfer"}
+                                    {isTransferring ? (
+                                      <svg
+                                        className="animate-spin h-4 w-4 text-white"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <circle
+                                          className="opacity-25"
+                                          cx="12"
+                                          cy="12"
+                                          r="10"
+                                          stroke="currentColor"
+                                          strokeWidth="4"
+                                        ></circle>
+                                        <path
+                                          className="opacity-75"
+                                          fill="currentColor"
+                                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                        ></path>
+                                      </svg>
+                                    ) : (
+                                      "Transfer"
+                                    )}
                                   </button>
                                   <button
                                     onClick={() =>
-                                      handleEditPayment(payment, plot)
+                                      openModal("edit", plot, payment)
                                     }
                                     disabled={isLoading}
                                     className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
@@ -780,7 +1286,7 @@ const PaymentDashboard22 = () => {
                                   </button>
                                   <button
                                     onClick={() =>
-                                      handleDeletePayment(payment._id)
+                                      handleDeletePayment(payment, plot)
                                     }
                                     disabled={isLoading}
                                     className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
@@ -803,145 +1309,8 @@ const PaymentDashboard22 = () => {
         ))}
       </div>
 
-      {/* Payment Modal */}
-      {showPaymentForm && currentPlot && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowPaymentForm(false);
-          }}
-        >
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">
-              {currentPayment ? "Update" : "Create"} Payment for Plot{" "}
-              {currentPlot.plotNumber}
-            </h2>
-
-            <form onSubmit={submitPayment} noValidate>
-              <div className="mb-4">
-                <label
-                  className="block text-gray-700 text-sm font-bold mb-2"
-                  htmlFor="expectedAmount"
-                >
-                  Expected Amount (Ksh) *
-                </label>
-                <input
-                  type="number"
-                  id="expectedAmount"
-                  name="expectedAmount"
-                  value={formData.expectedAmount}
-                  onChange={handleInputChange}
-                  className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
-                    formErrors.expectedAmount ? "border-red-500" : ""
-                  }`}
-                  required
-                  step="0.01"
-                  min="0.01"
-                  disabled={isSubmitting}
-                  aria-describedby={
-                    formErrors.expectedAmount
-                      ? "expectedAmount-error"
-                      : undefined
-                  }
-                />
-                {formErrors.expectedAmount && (
-                  <p
-                    id="expectedAmount-error"
-                    className="text-red-500 text-xs mt-1"
-                  >
-                    {formErrors.expectedAmount}
-                  </p>
-                )}
-              </div>
-
-              <div className="mb-4">
-                <label
-                  className="block text-gray-700 text-sm font-bold mb-2"
-                  htmlFor="paidAmount"
-                >
-                  Paid Amount (Ksh) *
-                </label>
-                <input
-                  type="number"
-                  id="paidAmount"
-                  name="paidAmount"
-                  value={formData.paidAmount}
-                  onChange={handleInputChange}
-                  className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
-                    formErrors.paidAmount ? "border-red-500" : ""
-                  }`}
-                  required
-                  step="0.01"
-                  min="0"
-                  disabled={isSubmitting}
-                  aria-describedby={
-                    formErrors.paidAmount ? "paidAmount-error" : undefined
-                  }
-                />
-                {formErrors.paidAmount && (
-                  <p
-                    id="paidAmount-error"
-                    className="text-red-500 text-xs mt-1"
-                  >
-                    {formErrors.paidAmount}
-                  </p>
-                )}
-              </div>
-
-              <div className="mb-6">
-                <label
-                  className="block text-gray-700 text-sm font-bold mb-2"
-                  htmlFor="dueDate"
-                >
-                  Due Date *
-                </label>
-                <input
-                  type="date"
-                  id="dueDate"
-                  name="dueDate"
-                  value={formData.dueDate}
-                  onChange={handleInputChange}
-                  className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
-                    formErrors.dueDate ? "border-red-500" : ""
-                  }`}
-                  required
-                  disabled={isSubmitting}
-                  aria-describedby={
-                    formErrors.dueDate ? "dueDate-error" : undefined
-                  }
-                />
-                {formErrors.dueDate && (
-                  <p id="dueDate-error" className="text-red-500 text-xs mt-1">
-                    {formErrors.dueDate}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowPaymentForm(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors duration-200"
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting
-                    ? "Processing..."
-                    : currentPayment
-                      ? "Update"
-                      : "Create"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Modal */}
+      {renderModal()}
 
       {/* Add animation styles */}
       <style jsx>{`
