@@ -17,11 +17,13 @@ import { format, parseISO, isValid } from "date-fns";
 
 // Constants
 const DEBOUNCE_DELAY = 300;
+const REFRESH_DELAY = 500; // Delay before refreshing data after operations
 
 const PaymentDashboard22 = () => {
   const dispatch = useDispatch();
   const isMounted = useRef(true);
   const abortControllerRef = useRef(null);
+  const refreshTimeoutRef = useRef(null);
 
   const {
     monthlyPayments,
@@ -42,6 +44,7 @@ const PaymentDashboard22 = () => {
     format(new Date(), "yyyy-MM"),
   );
   const [expandedLocation, setExpandedLocation] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Modal states
   const [modalState, setModalState] = useState({
@@ -70,10 +73,64 @@ const PaymentDashboard22 = () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
     };
   }, []);
 
-  // Fetch data when selectedMonth changes with debounce
+  // Refresh data function
+  const refreshData = useCallback(
+    async (showLoadingToast = false) => {
+      if (!isMounted.current) return;
+
+      try {
+        setIsRefreshing(true);
+
+        let loadingToast;
+        if (showLoadingToast) {
+          loadingToast = toast.loading("Refreshing data...");
+        }
+
+        const [year, month] = selectedMonth.split("-");
+        const monthNum = parseInt(month);
+        const yearNum = parseInt(year);
+
+        await Promise.all([
+          dispatch(
+            getPaymentsByMonth({ month: monthNum, year: yearNum }),
+          ).unwrap(),
+          dispatch(
+            getMonthlySummary({ month: monthNum, year: yearNum }),
+          ).unwrap(),
+        ]);
+
+        if (loadingToast) {
+          toast.dismiss(loadingToast);
+        }
+      } catch (error) {
+        console.error("Error refreshing data:", error);
+        toast.error("Failed to refresh data");
+      } finally {
+        if (isMounted.current) {
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [dispatch, selectedMonth],
+  );
+
+  // Debounced refresh function
+  const debouncedRefresh = useCallback(() => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshData(false);
+    }, REFRESH_DELAY);
+  }, [refreshData]);
+
+  // Fetch data when selectedMonth changes
   useEffect(() => {
     const loadData = async () => {
       // Cancel previous request
@@ -139,6 +196,12 @@ const PaymentDashboard22 = () => {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
+  }, []);
+
+  // Calculate completion percentage
+  const calculateCompletion = useCallback((paid, expected) => {
+    if (!expected || expected === 0) return 0;
+    return Math.round((paid / expected) * 100);
   }, []);
 
   // Validate payment form
@@ -271,19 +334,8 @@ const PaymentDashboard22 = () => {
           `Successfully transferred ${result.count} payment(s) to ${result.month}`,
         );
 
-        // Refresh data
-        const [year, month] = selectedMonth.split("-");
-        await Promise.all([
-          dispatch(
-            getPaymentsByMonth({
-              month: parseInt(month),
-              year: parseInt(year),
-            }),
-          ).unwrap(),
-          dispatch(
-            getMonthlySummary({ month: parseInt(month), year: parseInt(year) }),
-          ).unwrap(),
-        ]);
+        // Refresh data immediately
+        await refreshData(false);
       } catch (error) {
         toast.dismiss(processingToast);
         toast.error(error.message || "Failed to transfer payments");
@@ -297,7 +349,7 @@ const PaymentDashboard22 = () => {
         }
       }
     },
-    [dispatch, selectedMonth, transferringPlots, plots],
+    [dispatch, plots, refreshData, transferringPlots],
   );
 
   const handleTransferAllPayments = useCallback(async () => {
@@ -374,21 +426,13 @@ const PaymentDashboard22 = () => {
         `Successfully transferred ${result.totalTransferred} payments across ${result.results.length} plots to ${result.month}`,
       );
 
-      // Refresh data
-      const [year, month] = selectedMonth.split("-");
-      await Promise.all([
-        dispatch(
-          getPaymentsByMonth({ month: parseInt(month), year: parseInt(year) }),
-        ).unwrap(),
-        dispatch(
-          getMonthlySummary({ month: parseInt(month), year: parseInt(year) }),
-        ).unwrap(),
-      ]);
+      // Refresh data immediately
+      await refreshData(false);
     } catch (error) {
       toast.dismiss(processingToast);
       toast.error(error.message || "Failed to transfer payments");
     }
-  }, [dispatch, selectedMonth, paymentsLoading]);
+  }, [dispatch, paymentsLoading, refreshData]);
 
   // Handle form input changes with validation
   const handleInputChange = useCallback((e) => {
@@ -484,12 +528,13 @@ const PaymentDashboard22 = () => {
 
       try {
         let paymentData;
+        let oldPaidAmount = 0;
 
         if (modalState.type === "pay") {
           // For pay modal: ADD the new payment to existing paid amount
           const additionalPayment = parseFloat(formData.additionalPayment);
-          const newPaidAmount =
-            modalState.payment.paidAmount + additionalPayment;
+          oldPaidAmount = modalState.payment.paidAmount;
+          const newPaidAmount = oldPaidAmount + additionalPayment;
 
           paymentData = {
             expectedAmount: modalState.payment.expectedAmount,
@@ -551,18 +596,8 @@ const PaymentDashboard22 = () => {
 
         closeModal();
 
-        const [year, month] = selectedMonth.split("-");
-        await Promise.all([
-          dispatch(
-            getPaymentsByMonth({
-              month: parseInt(month),
-              year: parseInt(year),
-            }),
-          ).unwrap(),
-          dispatch(
-            getMonthlySummary({ month: parseInt(month), year: parseInt(year) }),
-          ).unwrap(),
-        ]);
+        // Refresh data immediately to update summary
+        await refreshData(false);
       } catch (error) {
         toast.dismiss(processingToast);
         toast.error(error.message || "Payment operation failed");
@@ -575,11 +610,10 @@ const PaymentDashboard22 = () => {
     [
       modalState,
       formData,
-      selectedMonth,
-      dispatch,
       validatePaymentForm,
       formatCurrency,
       closeModal,
+      refreshData,
     ],
   );
 
@@ -654,24 +688,14 @@ const PaymentDashboard22 = () => {
         toast.dismiss(processingToast);
         toast.success("Payment deleted successfully");
 
-        const [year, month] = selectedMonth.split("-");
-        await Promise.all([
-          dispatch(
-            getPaymentsByMonth({
-              month: parseInt(month),
-              year: parseInt(year),
-            }),
-          ).unwrap(),
-          dispatch(
-            getMonthlySummary({ month: parseInt(month), year: parseInt(year) }),
-          ).unwrap(),
-        ]);
+        // Refresh data immediately
+        await refreshData(false);
       } catch (error) {
         toast.dismiss(processingToast);
         toast.error(error.message || "Failed to delete payment");
       }
     },
-    [dispatch, selectedMonth, formatCurrency],
+    [dispatch, formatCurrency, refreshData],
   );
 
   // Memoized calculations
@@ -703,7 +727,8 @@ const PaymentDashboard22 = () => {
     }, {});
   }, [locations, plots]);
 
-  const isLoading = paymentsLoading || plotsLoading || locationsLoading;
+  const isLoading =
+    paymentsLoading || plotsLoading || locationsLoading || isRefreshing;
 
   // Optimized User components
   const UserStack = useCallback(({ users }) => {
@@ -772,7 +797,7 @@ const PaymentDashboard22 = () => {
     );
   }, []);
 
-  const SummaryCard = useCallback(({ title, value, color }) => {
+  const SummaryCard = useCallback(({ title, value, color, isLoading }) => {
     const colorClasses = {
       blue: "bg-blue-50 text-blue-800 border-blue-200",
       green: "bg-green-50 text-green-800 border-green-200",
@@ -781,8 +806,34 @@ const PaymentDashboard22 = () => {
     };
 
     return (
-      <div className={`p-3 rounded border ${colorClasses[color]}`}>
-        <h3 className="font-medium text-sm">{title}</h3>
+      <div
+        className={`p-3 rounded border transition-all duration-300 ${colorClasses[color]} ${isLoading ? "opacity-50 animate-pulse" : ""}`}
+      >
+        <h3 className="font-medium text-sm flex items-center">
+          {title}
+          {isLoading && (
+            <svg
+              className="animate-spin ml-2 h-3 w-3 text-gray-500"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              ></circle>
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+          )}
+        </h3>
         <p className="text-xl font-bold mt-1">{value}</p>
       </div>
     );
@@ -818,6 +869,10 @@ const PaymentDashboard22 = () => {
           paid: payment.paidAmount,
           remaining: remaining,
           isFullyPaid: remaining <= 0,
+          completion: calculateCompletion(
+            payment.paidAmount,
+            payment.expectedAmount,
+          ),
         };
       }
       return null;
@@ -886,23 +941,23 @@ const PaymentDashboard22 = () => {
                 <h3 className="text-sm font-medium text-gray-700 mb-2">
                   Payment Summary
                 </h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-gray-500">Expected:</span>
-                    <span className="ml-2 font-medium text-gray-900">
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Expected Amount:</span>
+                    <span className="font-medium text-gray-900">
                       {formatCurrency(paymentSummary.expected)}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-gray-500">Paid so far:</span>
-                    <span className="ml-2 font-medium text-green-600">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Paid So Far:</span>
+                    <span className="font-medium text-green-600">
                       {formatCurrency(paymentSummary.paid)}
                     </span>
                   </div>
-                  <div className="col-span-2">
+                  <div className="flex justify-between border-t pt-2">
                     <span className="text-gray-500">Remaining:</span>
                     <span
-                      className={`ml-2 font-bold ${
+                      className={`font-bold ${
                         paymentSummary.remaining > 0
                           ? "text-orange-600"
                           : "text-green-600"
@@ -911,9 +966,21 @@ const PaymentDashboard22 = () => {
                       {formatCurrency(paymentSummary.remaining)}
                     </span>
                   </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Completion:</span>
+                    <span
+                      className={`font-medium ${
+                        paymentSummary.completion === 100
+                          ? "text-green-600"
+                          : "text-orange-600"
+                      }`}
+                    >
+                      {paymentSummary.completion}%
+                    </span>
+                  </div>
                 </div>
                 {paymentSummary.isFullyPaid && (
-                  <p className="mt-2 text-xs text-green-600 bg-green-100 p-1 rounded">
+                  <p className="mt-2 text-xs text-green-600 bg-green-100 p-1 rounded text-center">
                     ✓ This plot is already fully paid
                   </p>
                 )}
@@ -988,6 +1055,7 @@ const PaymentDashboard22 = () => {
                     required
                     step="0.01"
                     min="0.01"
+                    max={paymentSummary?.remaining || 0}
                     disabled={isSubmitting || paymentSummary?.isFullyPaid}
                     placeholder="Enter payment amount"
                     autoFocus
@@ -1024,6 +1092,17 @@ const PaymentDashboard22 = () => {
                             payment.paidAmount +
                               parseFloat(formData.additionalPayment),
                           )}
+                        </span>
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        New completion:{" "}
+                        <span className="font-medium text-blue-600">
+                          {calculateCompletion(
+                            payment.paidAmount +
+                              parseFloat(formData.additionalPayment),
+                            payment.expectedAmount,
+                          )}
+                          %
                         </span>
                       </p>
                     </div>
@@ -1064,6 +1143,24 @@ const PaymentDashboard22 = () => {
                     {formErrors.paidAmount}
                   </p>
                 )}
+
+                {/* Preview completion for edit */}
+                {formData.expectedAmount &&
+                  formData.paidAmount &&
+                  !isNaN(parseFloat(formData.paidAmount)) && (
+                    <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200">
+                      <p className="text-xs text-gray-600">
+                        Completion:{" "}
+                        <span className="font-medium text-blue-600">
+                          {calculateCompletion(
+                            parseFloat(formData.paidAmount),
+                            parseFloat(formData.expectedAmount),
+                          )}
+                          %
+                        </span>
+                      </p>
+                    </div>
+                  )}
               </div>
             ) : (
               // Create Modal - Initial Paid Amount
@@ -1199,8 +1296,39 @@ const PaymentDashboard22 = () => {
   return (
     <div className="container mx-auto p-4 max-w-7xl">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Payment Management</h1>
-        {isLoading && <p className="text-sm text-gray-500 mt-1">Loading...</p>}
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-gray-900">
+            Payment Management
+          </h1>
+          {isRefreshing && (
+            <div className="flex items-center text-sm text-gray-500">
+              <svg
+                className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-500"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              Updating...
+            </div>
+          )}
+        </div>
+        {isLoading && !isRefreshing && (
+          <p className="text-sm text-gray-500 mt-1">Loading...</p>
+        )}
       </header>
 
       {/* Month Selector and Actions */}
@@ -1237,29 +1365,38 @@ const PaymentDashboard22 = () => {
       <div className="mb-6 w-full">
         {summary ? (
           <div className="bg-white shadow rounded-lg p-4 w-full border border-gray-200">
-            <h2 className="text-lg font-semibold mb-3 text-gray-800">
+            <h2 className="text-lg font-semibold mb-3 text-gray-800 flex items-center">
               {summary.monthName} {summary.year} Summary
+              {isRefreshing && (
+                <span className="ml-2 text-xs font-normal text-gray-500">
+                  (updating...)
+                </span>
+              )}
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <SummaryCard
                 title="Total Expected"
                 value={formatCurrency(summary.totalExpected)}
                 color="blue"
+                isLoading={isRefreshing}
               />
               <SummaryCard
                 title="Total Paid"
                 value={formatCurrency(summary.totalPaid)}
                 color="green"
+                isLoading={isRefreshing}
               />
               <SummaryCard
                 title="Outstanding"
                 value={formatCurrency(summary.outstandingAmount)}
                 color="yellow"
+                isLoading={isRefreshing}
               />
               <SummaryCard
                 title="Completion"
                 value={`${Math.round(summary.amountCompletionRate || 0)}%`}
                 color="purple"
+                isLoading={isRefreshing}
               />
             </div>
           </div>
