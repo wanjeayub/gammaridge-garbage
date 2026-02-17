@@ -17,7 +17,6 @@ import { format, parseISO, isValid } from "date-fns";
 
 // Constants
 const DEBOUNCE_DELAY = 300;
-const TOAST_DURATION = 5000;
 
 const PaymentDashboard22 = () => {
   const dispatch = useDispatch();
@@ -55,6 +54,7 @@ const PaymentDashboard22 = () => {
   const [formData, setFormData] = useState({
     expectedAmount: "",
     paidAmount: "0",
+    additionalPayment: "",
     dueDate: format(new Date(), "yyyy-MM-dd"),
   });
 
@@ -142,40 +142,53 @@ const PaymentDashboard22 = () => {
   }, []);
 
   // Validate payment form
-  const validatePaymentForm = useCallback((data, type) => {
-    const errors = {};
-    const expected = parseFloat(data.expectedAmount);
-    const paid = parseFloat(data.paidAmount);
+  const validatePaymentForm = useCallback(
+    (data, type, currentPayment = null) => {
+      const errors = {};
 
-    if (type !== "pay") {
-      if (isNaN(expected) || expected <= 0) {
-        errors.expectedAmount = "Expected amount must be greater than 0";
+      if (type === "pay") {
+        const additionalPayment = parseFloat(data.additionalPayment);
+
+        if (isNaN(additionalPayment) || additionalPayment <= 0) {
+          errors.additionalPayment = "Payment amount must be greater than 0";
+        }
+
+        if (currentPayment) {
+          const newTotal = currentPayment.paidAmount + additionalPayment;
+          if (newTotal > currentPayment.expectedAmount) {
+            errors.additionalPayment = `Total paid (${formatCurrency(newTotal)}) would exceed expected amount (${formatCurrency(currentPayment.expectedAmount)})`;
+          }
+        }
+      } else {
+        const expected = parseFloat(data.expectedAmount);
+        const paid = parseFloat(data.paidAmount);
+
+        if (isNaN(expected) || expected <= 0) {
+          errors.expectedAmount = "Expected amount must be greater than 0";
+        }
+
+        if (isNaN(paid) || paid < 0) {
+          errors.paidAmount = "Paid amount must be a positive number";
+        }
+
+        if (paid > expected) {
+          errors.paidAmount = "Paid amount cannot exceed expected amount";
+        }
       }
-    }
 
-    if (isNaN(paid) || paid < 0) {
-      errors.paidAmount = "Paid amount must be a positive number";
-    }
-
-    if (type === "pay" && paid <= 0) {
-      errors.paidAmount = "Payment amount must be greater than 0";
-    }
-
-    if (type !== "pay" && paid > expected) {
-      errors.paidAmount = "Paid amount cannot exceed expected amount";
-    }
-
-    if (!data.dueDate) {
-      errors.dueDate = "Due date is required";
-    } else {
-      const dueDate = new Date(data.dueDate);
-      if (!isValid(dueDate)) {
-        errors.dueDate = "Invalid due date";
+      if (!data.dueDate) {
+        errors.dueDate = "Due date is required";
+      } else {
+        const dueDate = new Date(data.dueDate);
+        if (!isValid(dueDate)) {
+          errors.dueDate = "Invalid due date";
+        }
       }
-    }
 
-    return errors;
-  }, []);
+      return errors;
+    },
+    [formatCurrency],
+  );
 
   const handleTransferPayments = useCallback(
     async (plotId) => {
@@ -406,19 +419,22 @@ const PaymentDashboard22 = () => {
     if (type === "pay") {
       setFormData({
         expectedAmount: payment.expectedAmount.toString(),
-        paidAmount: "",
+        paidAmount: payment.paidAmount.toString(),
+        additionalPayment: "",
         dueDate: format(parseISO(payment.dueDate), "yyyy-MM-dd"),
       });
     } else if (type === "edit") {
       setFormData({
         expectedAmount: payment.expectedAmount.toString(),
         paidAmount: payment.paidAmount.toString(),
+        additionalPayment: "",
         dueDate: format(parseISO(payment.dueDate), "yyyy-MM-dd"),
       });
     } else if (type === "create") {
       setFormData({
         expectedAmount: "",
         paidAmount: "0",
+        additionalPayment: "",
         dueDate: format(new Date(), "yyyy-MM-dd"),
       });
     }
@@ -435,6 +451,7 @@ const PaymentDashboard22 = () => {
     setFormData({
       expectedAmount: "",
       paidAmount: "0",
+      additionalPayment: "",
       dueDate: format(new Date(), "yyyy-MM-dd"),
     });
   }, []);
@@ -445,7 +462,11 @@ const PaymentDashboard22 = () => {
       e.preventDefault();
 
       // Validate form
-      const errors = validatePaymentForm(formData, modalState.type);
+      const errors = validatePaymentForm(
+        formData,
+        modalState.type,
+        modalState.payment,
+      );
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
         toast.error("Please fix the errors in the form");
@@ -462,19 +483,41 @@ const PaymentDashboard22 = () => {
       );
 
       try {
-        const paymentData = {
-          expectedAmount:
-            modalState.type === "pay"
-              ? modalState.payment.expectedAmount
-              : parseFloat(formData.expectedAmount),
-          paidAmount: parseFloat(formData.paidAmount),
-          dueDate: formData.dueDate,
-          isPaid:
-            parseFloat(formData.paidAmount) >=
-            (modalState.type === "pay"
-              ? modalState.payment.expectedAmount
-              : parseFloat(formData.expectedAmount)),
-        };
+        let paymentData;
+
+        if (modalState.type === "pay") {
+          // For pay modal: ADD the new payment to existing paid amount
+          const additionalPayment = parseFloat(formData.additionalPayment);
+          const newPaidAmount =
+            modalState.payment.paidAmount + additionalPayment;
+
+          paymentData = {
+            expectedAmount: modalState.payment.expectedAmount,
+            paidAmount: newPaidAmount,
+            dueDate: formData.dueDate,
+            isPaid: newPaidAmount >= modalState.payment.expectedAmount,
+          };
+        } else if (modalState.type === "edit") {
+          // For edit modal: REPLACE the paid amount with new value
+          paymentData = {
+            expectedAmount: parseFloat(formData.expectedAmount),
+            paidAmount: parseFloat(formData.paidAmount),
+            dueDate: formData.dueDate,
+            isPaid:
+              parseFloat(formData.paidAmount) >=
+              parseFloat(formData.expectedAmount),
+          };
+        } else {
+          // For create modal: Set initial values
+          paymentData = {
+            expectedAmount: parseFloat(formData.expectedAmount),
+            paidAmount: parseFloat(formData.paidAmount),
+            dueDate: formData.dueDate,
+            isPaid:
+              parseFloat(formData.paidAmount) >=
+              parseFloat(formData.expectedAmount),
+          };
+        }
 
         if (modalState.type === "pay" || modalState.type === "edit") {
           await dispatch(
@@ -483,12 +526,17 @@ const PaymentDashboard22 = () => {
               paymentData,
             }),
           ).unwrap();
+
           toast.dismiss(processingToast);
-          toast.success(
-            modalState.type === "pay"
-              ? `Payment of ${formatCurrency(parseFloat(formData.paidAmount))} recorded successfully`
-              : "Payment updated successfully",
-          );
+
+          if (modalState.type === "pay") {
+            const additionalAmount = parseFloat(formData.additionalPayment);
+            toast.success(
+              `Payment of ${formatCurrency(additionalAmount)} recorded successfully. Total paid: ${formatCurrency(paymentData.paidAmount)}`,
+            );
+          } else {
+            toast.success("Payment updated successfully");
+          }
         } else {
           await dispatch(
             createPayment({
@@ -496,6 +544,7 @@ const PaymentDashboard22 = () => {
               ...paymentData,
             }),
           ).unwrap();
+
           toast.dismiss(processingToast);
           toast.success("Payment created successfully");
         }
@@ -761,12 +810,20 @@ const PaymentDashboard22 = () => {
       }
     };
 
-    const getModalDescription = () => {
-      if (type === "pay") {
-        return `Expected amount: ${formatCurrency(payment.expectedAmount)}`;
+    const getPaymentSummary = () => {
+      if (type === "pay" && payment) {
+        const remaining = payment.expectedAmount - payment.paidAmount;
+        return {
+          expected: payment.expectedAmount,
+          paid: payment.paidAmount,
+          remaining: remaining,
+          isFullyPaid: remaining <= 0,
+        };
       }
       return null;
     };
+
+    const paymentSummary = getPaymentSummary();
 
     return (
       <div
@@ -817,11 +874,50 @@ const PaymentDashboard22 = () => {
               </div>
             </div>
 
-            {/* Modal specific description */}
-            {getModalDescription() && (
-              <p className="mt-2 text-sm text-gray-600 bg-blue-50 p-2 rounded">
-                {getModalDescription()}
-              </p>
+            {/* Payment Summary for Pay Modal */}
+            {type === "pay" && paymentSummary && (
+              <div
+                className={`mt-3 p-3 rounded-lg border ${
+                  paymentSummary.isFullyPaid
+                    ? "bg-green-50 border-green-200"
+                    : "bg-blue-50 border-blue-200"
+                }`}
+              >
+                <h3 className="text-sm font-medium text-gray-700 mb-2">
+                  Payment Summary
+                </h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-500">Expected:</span>
+                    <span className="ml-2 font-medium text-gray-900">
+                      {formatCurrency(paymentSummary.expected)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Paid so far:</span>
+                    <span className="ml-2 font-medium text-green-600">
+                      {formatCurrency(paymentSummary.paid)}
+                    </span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-gray-500">Remaining:</span>
+                    <span
+                      className={`ml-2 font-bold ${
+                        paymentSummary.remaining > 0
+                          ? "text-orange-600"
+                          : "text-green-600"
+                      }`}
+                    >
+                      {formatCurrency(paymentSummary.remaining)}
+                    </span>
+                  </div>
+                </div>
+                {paymentSummary.isFullyPaid && (
+                  <p className="mt-2 text-xs text-green-600 bg-green-100 p-1 rounded">
+                    ✓ This plot is already fully paid
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
@@ -866,54 +962,146 @@ const PaymentDashboard22 = () => {
               </div>
             )}
 
-            {/* Paid Amount - Different labels for different modals */}
-            <div className="mb-4">
-              <label
-                className="block text-gray-700 text-sm font-bold mb-2"
-                htmlFor="paidAmount"
-              >
-                {type === "pay"
-                  ? "Payment Amount (Ksh) *"
-                  : "Paid Amount (Ksh) *"}
-              </label>
-              <div className="relative">
-                {type === "pay" && (
+            {/* Paid Amount Field - Different for each modal type */}
+            {type === "pay" ? (
+              // Pay Modal - Additional Payment Field
+              <div className="mb-4">
+                <label
+                  className="block text-gray-700 text-sm font-bold mb-2"
+                  htmlFor="additionalPayment"
+                >
+                  Additional Payment Amount (Ksh) *
+                </label>
+                <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <span className="text-gray-500 sm:text-sm">Ksh</span>
                   </div>
+                  <input
+                    type="number"
+                    id="additionalPayment"
+                    name="additionalPayment"
+                    value={formData.additionalPayment}
+                    onChange={handleInputChange}
+                    className={`shadow appearance-none border rounded w-full py-2 pl-12 pr-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
+                      formErrors.additionalPayment ? "border-red-500" : ""
+                    }`}
+                    required
+                    step="0.01"
+                    min="0.01"
+                    disabled={isSubmitting || paymentSummary?.isFullyPaid}
+                    placeholder="Enter payment amount"
+                    autoFocus
+                    aria-describedby={
+                      formErrors.additionalPayment
+                        ? "additionalPayment-error"
+                        : undefined
+                    }
+                  />
+                </div>
+                {formErrors.additionalPayment && (
+                  <p
+                    id="additionalPayment-error"
+                    className="text-red-500 text-xs mt-1"
+                  >
+                    {formErrors.additionalPayment}
+                  </p>
                 )}
+                {paymentSummary && !paymentSummary.isFullyPaid && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Maximum allowed: {formatCurrency(paymentSummary.remaining)}
+                  </p>
+                )}
+
+                {/* Preview new total */}
+                {formData.additionalPayment &&
+                  !isNaN(parseFloat(formData.additionalPayment)) &&
+                  payment && (
+                    <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200">
+                      <p className="text-xs text-gray-600">
+                        New total paid:{" "}
+                        <span className="font-medium text-green-600">
+                          {formatCurrency(
+                            payment.paidAmount +
+                              parseFloat(formData.additionalPayment),
+                          )}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+              </div>
+            ) : type === "edit" ? (
+              // Edit Modal - Replace Paid Amount
+              <div className="mb-4">
+                <label
+                  className="block text-gray-700 text-sm font-bold mb-2"
+                  htmlFor="paidAmount"
+                >
+                  Paid Amount (Ksh) *
+                </label>
                 <input
                   type="number"
                   id="paidAmount"
                   name="paidAmount"
                   value={formData.paidAmount}
                   onChange={handleInputChange}
-                  className={`shadow appearance-none border rounded w-full py-2 ${
-                    type === "pay" ? "pl-12" : "px-3"
-                  } text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
+                  className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
                     formErrors.paidAmount ? "border-red-500" : ""
                   }`}
                   required
                   step="0.01"
-                  min={type === "pay" ? "0.01" : "0"}
+                  min="0"
                   disabled={isSubmitting}
-                  placeholder={
-                    type === "pay"
-                      ? "Enter payment amount"
-                      : "Enter paid amount"
-                  }
-                  autoFocus={type === "pay"}
+                  placeholder="Enter paid amount"
                   aria-describedby={
                     formErrors.paidAmount ? "paidAmount-error" : undefined
                   }
                 />
+                {formErrors.paidAmount && (
+                  <p
+                    id="paidAmount-error"
+                    className="text-red-500 text-xs mt-1"
+                  >
+                    {formErrors.paidAmount}
+                  </p>
+                )}
               </div>
-              {formErrors.paidAmount && (
-                <p id="paidAmount-error" className="text-red-500 text-xs mt-1">
-                  {formErrors.paidAmount}
-                </p>
-              )}
-            </div>
+            ) : (
+              // Create Modal - Initial Paid Amount
+              <div className="mb-4">
+                <label
+                  className="block text-gray-700 text-sm font-bold mb-2"
+                  htmlFor="paidAmount"
+                >
+                  Initial Paid Amount (Ksh) *
+                </label>
+                <input
+                  type="number"
+                  id="paidAmount"
+                  name="paidAmount"
+                  value={formData.paidAmount}
+                  onChange={handleInputChange}
+                  className={`shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline ${
+                    formErrors.paidAmount ? "border-red-500" : ""
+                  }`}
+                  required
+                  step="0.01"
+                  min="0"
+                  disabled={isSubmitting}
+                  placeholder="Enter initial paid amount"
+                  aria-describedby={
+                    formErrors.paidAmount ? "paidAmount-error" : undefined
+                  }
+                />
+                {formErrors.paidAmount && (
+                  <p
+                    id="paidAmount-error"
+                    className="text-red-500 text-xs mt-1"
+                  >
+                    {formErrors.paidAmount}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Due Date */}
             <div className="mb-6">
@@ -957,6 +1145,10 @@ const PaymentDashboard22 = () => {
               </button>
               <button
                 type="submit"
+                disabled={
+                  isSubmitting ||
+                  (type === "pay" && paymentSummary?.isFullyPaid)
+                }
                 className={`px-4 py-2 text-white rounded focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ${
                   type === "pay"
                     ? "bg-green-600 hover:bg-green-700 focus:ring-green-500"
@@ -964,7 +1156,6 @@ const PaymentDashboard22 = () => {
                       ? "bg-yellow-500 hover:bg-yellow-600 focus:ring-yellow-500"
                       : "bg-blue-500 hover:bg-blue-600 focus:ring-blue-500"
                 }`}
-                disabled={isSubmitting}
               >
                 {isSubmitting ? (
                   <span className="flex items-center">
