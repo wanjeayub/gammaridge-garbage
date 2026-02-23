@@ -17,7 +17,7 @@ import { format, parseISO, isValid } from "date-fns";
 
 // Constants
 const DEBOUNCE_DELAY = 300;
-const REFRESH_DELAY = 300; // Reduced for faster refresh
+const REFRESH_DELAY = 300;
 
 const PaymentDashboard22 = () => {
   const dispatch = useDispatch();
@@ -46,6 +46,7 @@ const PaymentDashboard22 = () => {
   );
   const [expandedLocation, setExpandedLocation] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true); // New state for initial load
 
   // Modal states
   const [modalState, setModalState] = useState({
@@ -109,7 +110,6 @@ const PaymentDashboard22 = () => {
 
       } catch (error) {
         console.error("Error refreshing data:", error);
-        // Don't show error toast for background refreshes
         if (showLoadingToast) {
           toast.error("Failed to refresh data");
         }
@@ -146,6 +146,7 @@ const PaymentDashboard22 = () => {
       }
 
       abortControllerRef.current = new AbortController();
+      setInitialLoading(true); // Set initial loading to true
 
       try {
         const [year, month] = selectedMonth.split("-");
@@ -176,6 +177,10 @@ const PaymentDashboard22 = () => {
       } catch (error) {
         if (error.name !== "AbortError" && isMounted.current) {
           console.error("Failed to load data:", error);
+        }
+      } finally {
+        if (isMounted.current) {
+          setInitialLoading(false); // Always set initial loading to false when done
         }
       }
     };
@@ -745,8 +750,11 @@ const PaymentDashboard22 = () => {
     }, {});
   }, [locations, plots]);
 
-  const isLoading =
-    paymentsLoading || plotsLoading || locationsLoading || isRefreshing;
+  // Determine if any operation is in progress
+  const isOperationInProgress = isSubmitting || transferringPlots.size > 0;
+  
+  // Determine if we should show the loading indicator
+  const showHeaderLoading = initialLoading || (isRefreshing && !isOperationInProgress);
 
   // Optimized User components with memo
   const UserStack = useCallback(({ users }) => {
@@ -1318,7 +1326,7 @@ const PaymentDashboard22 = () => {
           <h1 className="text-2xl font-bold text-gray-900">
             Payment Management
           </h1>
-          {isRefreshing && (
+          {showHeaderLoading && (
             <div className="flex items-center text-sm text-gray-500">
               <svg
                 className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-500"
@@ -1340,13 +1348,11 @@ const PaymentDashboard22 = () => {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 ></path>
               </svg>
-              Updating...
+              {initialLoading ? "Loading..." : "Updating..."}
             </div>
           )}
         </div>
-        {isLoading && !isRefreshing && (
-          <p className="text-sm text-gray-500 mt-1">Loading...</p>
-        )}
+        {/* Removed the old loading indicator that was causing issues */}
       </header>
 
       {/* Month Selector and Actions */}
@@ -1364,14 +1370,14 @@ const PaymentDashboard22 = () => {
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
             className="block w-full md:w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
-            disabled={isLoading}
+            disabled={initialLoading || isRefreshing}
             aria-label="Select month"
           />
         </div>
 
         <button
           onClick={handleTransferAllPayments}
-          disabled={isLoading || paymentsLoading}
+          disabled={initialLoading || paymentsLoading || isRefreshing}
           className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed w-full md:w-auto transition-colors duration-200"
           aria-label="Transfer all payments to next month"
         >
@@ -1385,7 +1391,7 @@ const PaymentDashboard22 = () => {
           <div className="bg-white shadow rounded-lg p-4 w-full border border-gray-200">
             <h2 className="text-lg font-semibold mb-3 text-gray-800 flex items-center">
               {summary.monthName} {summary.year} Summary
-              {isRefreshing && (
+              {isRefreshing && !isOperationInProgress && (
                 <span className="ml-2 text-xs font-normal text-gray-500">
                   (updating...)
                 </span>
@@ -1396,32 +1402,32 @@ const PaymentDashboard22 = () => {
                 title="Total Expected"
                 value={formatCurrency(summary.totalExpected)}
                 color="blue"
-                isLoading={isRefreshing}
+                isLoading={isRefreshing && !isOperationInProgress}
               />
               <SummaryCard
                 title="Total Paid"
                 value={formatCurrency(summary.totalPaid)}
                 color="green"
-                isLoading={isRefreshing}
+                isLoading={isRefreshing && !isOperationInProgress}
               />
               <SummaryCard
                 title="Outstanding"
                 value={formatCurrency(summary.outstandingAmount)}
                 color="yellow"
-                isLoading={isRefreshing}
+                isLoading={isRefreshing && !isOperationInProgress}
               />
               <SummaryCard
                 title="Completion"
                 value={`${Math.round(summary.amountCompletionRate || 0)}%`}
                 color="purple"
-                isLoading={isRefreshing}
+                isLoading={isRefreshing && !isOperationInProgress}
               />
             </div>
           </div>
         ) : (
           <div className="bg-white shadow rounded-lg p-6 w-full border border-gray-200">
             <p className="text-center text-gray-500">
-              {isLoading ? "Loading summary..." : "No summary data available"}
+              {initialLoading ? "Loading summary..." : "No summary data available"}
             </p>
           </div>
         )}
@@ -1443,6 +1449,7 @@ const PaymentDashboard22 = () => {
               className="w-full flex justify-between items-center p-4 bg-gray-50 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 transition-colors duration-200 sticky top-0 z-10"
               aria-expanded={expandedLocation === location._id}
               aria-controls={`location-${location._id}-plots`}
+              disabled={initialLoading}
             >
               <h2 className="text-lg font-semibold text-gray-800">
                 {location.name}
@@ -1515,6 +1522,9 @@ const PaymentDashboard22 = () => {
                           else if (payment.paidAmount > 0)
                             rowBgClass = "bg-yellow-50";
                           else rowBgClass = "bg-red-50";
+
+                          // Actions are disabled during initial loading
+                          const actionsDisabled = initialLoading || isSubmitting;
 
                           return (
                             <tr
@@ -1596,7 +1606,7 @@ const PaymentDashboard22 = () => {
                                   {!payment ? (
                                     <button
                                       onClick={() => openModal("create", plot)}
-                                      disabled={isLoading}
+                                      disabled={actionsDisabled}
                                       className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                       aria-label={`Add payment for plot ${plot.plotNumber}`}
                                     >
@@ -1608,7 +1618,7 @@ const PaymentDashboard22 = () => {
                                         onClick={() =>
                                           openModal("pay", plot, payment)
                                         }
-                                        disabled={isLoading || payment.isPaid}
+                                        disabled={actionsDisabled || payment.isPaid}
                                         className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                         aria-label={`Pay for plot ${plot.plotNumber}`}
                                       >
@@ -1618,7 +1628,7 @@ const PaymentDashboard22 = () => {
                                         onClick={() =>
                                           handleTransferPayments(plot._id)
                                         }
-                                        disabled={isLoading || isTransferring}
+                                        disabled={actionsDisabled || isTransferring}
                                         className="px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                         aria-label={`Transfer payments for plot ${plot.plotNumber}`}
                                       >
@@ -1651,7 +1661,7 @@ const PaymentDashboard22 = () => {
                                         onClick={() =>
                                           openModal("edit", plot, payment)
                                         }
-                                        disabled={isLoading}
+                                        disabled={actionsDisabled}
                                         className="px-2 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                         aria-label={`Edit payment for plot ${plot.plotNumber}`}
                                       >
@@ -1661,7 +1671,7 @@ const PaymentDashboard22 = () => {
                                         onClick={() =>
                                           handleDeletePayment(payment, plot)
                                         }
-                                        disabled={isLoading}
+                                        disabled={actionsDisabled}
                                         className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                                         aria-label={`Delete payment for plot ${plot.plotNumber}`}
                                       >
