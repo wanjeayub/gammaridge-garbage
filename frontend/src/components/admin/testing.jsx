@@ -17,14 +17,14 @@ import { format, parseISO, isValid } from "date-fns";
 
 // Constants
 const DEBOUNCE_DELAY = 300;
-const REFRESH_DELAY = 500;
+const REFRESH_DELAY = 300; // Reduced for faster refresh
 
 const PaymentDashboard22 = () => {
   const dispatch = useDispatch();
   const isMounted = useRef(true);
   const abortControllerRef = useRef(null);
   const refreshTimeoutRef = useRef(null);
-  const loadingToastRef = useRef(null);
+  const pendingOperationRef = useRef(false);
 
   const {
     monthlyPayments,
@@ -32,9 +32,7 @@ const PaymentDashboard22 = () => {
     isLoading: paymentsLoading,
     isError,
     message,
-    isSuccess, // Add this if your slice provides it
   } = useSelector((state) => state.payments);
-  
   const { plots, isLoading: plotsLoading } = useSelector(
     (state) => state.plots,
   );
@@ -48,7 +46,6 @@ const PaymentDashboard22 = () => {
   );
   const [expandedLocation, setExpandedLocation] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [dataVersion, setDataVersion] = useState(0); // Force re-render trigger
 
   // Modal states
   const [modalState, setModalState] = useState({
@@ -69,7 +66,7 @@ const PaymentDashboard22 = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transferringPlots, setTransferringPlots] = useState(new Set());
 
-  // Cleanup on unmount
+  // Set up mounted ref cleanup
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -80,42 +77,28 @@ const PaymentDashboard22 = () => {
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current);
       }
-      if (loadingToastRef.current) {
-        toast.dismiss(loadingToastRef.current);
-      }
     };
   }, []);
 
-  // Core refresh function - memoized but with dataVersion dependency
+  // Refresh data function - optimized to preserve UI state
   const refreshData = useCallback(
     async (showLoadingToast = false) => {
-      if (!isMounted.current) return;
-
-      // Cancel any pending refresh
-      if (refreshTimeoutRef.current) {
-        clearTimeout(refreshTimeoutRef.current);
+      // Don't refresh if there's a pending operation
+      if (pendingOperationRef.current) {
+        return;
       }
+
+      if (!isMounted.current) return;
 
       try {
         setIsRefreshing(true);
-
-        let loadingToast;
-        if (showLoadingToast) {
-          loadingToast = toast.loading("Refreshing data...");
-          loadingToastRef.current = loadingToast;
-        }
 
         const [year, month] = selectedMonth.split("-");
         const monthNum = parseInt(month);
         const yearNum = parseInt(year);
 
-        // Create new abort controller for this request
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-        abortControllerRef.current = new AbortController();
-
-        await Promise.all([
+        // Use Promise.allSettled to handle partial failures
+        await Promise.allSettled([
           dispatch(
             getPaymentsByMonth({ month: monthNum, year: yearNum }),
           ).unwrap(),
@@ -124,16 +107,11 @@ const PaymentDashboard22 = () => {
           ).unwrap(),
         ]);
 
-        if (loadingToast && isMounted.current) {
-          toast.dismiss(loadingToast);
-          loadingToastRef.current = null;
-        }
       } catch (error) {
-        if (error.name === "AbortError") return;
-        
         console.error("Error refreshing data:", error);
-        if (isMounted.current) {
-          toast.error(error.message || "Failed to refresh data");
+        // Don't show error toast for background refreshes
+        if (showLoadingToast) {
+          toast.error("Failed to refresh data");
         }
       } finally {
         if (isMounted.current) {
@@ -141,15 +119,10 @@ const PaymentDashboard22 = () => {
         }
       }
     },
-    [dispatch, selectedMonth], // Remove dataVersion to prevent loops, use trigger instead
+    [dispatch, selectedMonth],
   );
 
-  // Trigger refresh without creating new function references
-  const triggerRefresh = useCallback(() => {
-    setDataVersion(v => v + 1);
-  }, []);
-
-  // Debounced refresh that uses the stable refreshData
+  // Debounced refresh function
   const debouncedRefresh = useCallback(() => {
     if (refreshTimeoutRef.current) {
       clearTimeout(refreshTimeoutRef.current);
@@ -159,17 +132,13 @@ const PaymentDashboard22 = () => {
     }, REFRESH_DELAY);
   }, [refreshData]);
 
-  // Effect to handle dataVersion changes
-  useEffect(() => {
-    if (dataVersion > 0) {
-      refreshData(false);
-    }
-  }, [dataVersion, refreshData]);
-
-  // Initial data load - separate from refresh logic
+  // Fetch data when selectedMonth changes - with better error handling
   useEffect(() => {
     const loadData = async () => {
-      if (!isMounted.current) return;
+      // Don't load if there's a pending operation
+      if (pendingOperationRef.current) {
+        return;
+      }
 
       // Cancel previous request
       if (abortControllerRef.current) {
@@ -193,10 +162,7 @@ const PaymentDashboard22 = () => {
           return;
         }
 
-        const loadingToast = toast.loading("Loading payment data...");
-        loadingToastRef.current = loadingToast;
-
-        await Promise.all([
+        await Promise.allSettled([
           dispatch(
             getPaymentsByMonth({ month: monthNum, year: yearNum }),
           ).unwrap(),
@@ -207,24 +173,18 @@ const PaymentDashboard22 = () => {
           dispatch(getLocations()).unwrap(),
         ]);
 
-        if (isMounted.current) {
-          toast.dismiss(loadingToast);
-          loadingToastRef.current = null;
-        }
       } catch (error) {
-        if (error.name === "AbortError") return;
-        
-        if (isMounted.current) {
-          toast.error(error.message || "Failed to load data");
+        if (error.name !== "AbortError" && isMounted.current) {
+          console.error("Failed to load data:", error);
         }
       }
     };
 
     const debounceTimer = setTimeout(loadData, DEBOUNCE_DELAY);
     return () => clearTimeout(debounceTimer);
-  }, [dispatch, selectedMonth]); // Only re-run when month changes
+  }, [dispatch, selectedMonth]);
 
-  // Handle Redux errors
+  // Handle errors
   useEffect(() => {
     if (isError && message && isMounted.current) {
       toast.error(message);
@@ -232,7 +192,7 @@ const PaymentDashboard22 = () => {
     }
   }, [isError, message, dispatch]);
 
-  // Format currency
+  // Format currency in KSH
   const formatCurrency = useCallback((amount) => {
     if (amount === null || amount === undefined || isNaN(amount))
       return "Ksh 0.00";
@@ -365,6 +325,7 @@ const PaymentDashboard22 = () => {
       if (!confirmed) return;
 
       setTransferringPlots((prev) => new Set(prev).add(plotId));
+      pendingOperationRef.current = true;
 
       const processingToast = toast.loading(
         `Transferring payments for plot ${plotNumber}...`,
@@ -378,8 +339,8 @@ const PaymentDashboard22 = () => {
           `Successfully transferred ${result.count} payment(s) to ${result.month}`,
         );
 
-        // Use triggerRefresh instead of direct call to ensure fresh data
-        triggerRefresh();
+        // Refresh data without blocking UI
+        await refreshData(false);
       } catch (error) {
         toast.dismiss(processingToast);
         toast.error(error.message || "Failed to transfer payments");
@@ -390,10 +351,11 @@ const PaymentDashboard22 = () => {
             newSet.delete(plotId);
             return newSet;
           });
+          pendingOperationRef.current = false;
         }
       }
     },
-    [dispatch, plots, triggerRefresh, transferringPlots],
+    [dispatch, plots, refreshData],
   );
 
   const handleTransferAllPayments = useCallback(async () => {
@@ -460,6 +422,7 @@ const PaymentDashboard22 = () => {
 
     if (!confirmed) return;
 
+    pendingOperationRef.current = true;
     const processingToast = toast.loading("Transferring all payments...");
 
     try {
@@ -470,15 +433,17 @@ const PaymentDashboard22 = () => {
         `Successfully transferred ${result.totalTransferred} payments across ${result.results.length} plots to ${result.month}`,
       );
 
-      // Use triggerRefresh instead of direct call
-      triggerRefresh();
+      // Refresh data without blocking UI
+      await refreshData(false);
     } catch (error) {
       toast.dismiss(processingToast);
       toast.error(error.message || "Failed to transfer payments");
+    } finally {
+      pendingOperationRef.current = false;
     }
-  }, [dispatch, paymentsLoading, triggerRefresh]);
+  }, [dispatch, paymentsLoading, refreshData]);
 
-  // Handle form input changes
+  // Handle form input changes with validation
   const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -486,6 +451,7 @@ const PaymentDashboard22 = () => {
       [name]: value,
     }));
 
+    // Clear error for this field when user starts typing
     setFormErrors((prev) => ({
       ...prev,
       [name]: undefined,
@@ -548,6 +514,7 @@ const PaymentDashboard22 = () => {
     async (e) => {
       e.preventDefault();
 
+      // Validate form
       const errors = validatePaymentForm(
         formData,
         modalState.type,
@@ -560,6 +527,8 @@ const PaymentDashboard22 = () => {
       }
 
       setIsSubmitting(true);
+      pendingOperationRef.current = true;
+      
       const processingToast = toast.loading(
         modalState.type === "pay"
           ? "Processing payment..."
@@ -570,10 +539,12 @@ const PaymentDashboard22 = () => {
 
       try {
         let paymentData;
+        let oldPaidAmount = 0;
 
         if (modalState.type === "pay") {
           const additionalPayment = parseFloat(formData.additionalPayment);
-          const newPaidAmount = modalState.payment.paidAmount + additionalPayment;
+          oldPaidAmount = modalState.payment.paidAmount;
+          const newPaidAmount = oldPaidAmount + additionalPayment;
 
           paymentData = {
             expectedAmount: modalState.payment.expectedAmount,
@@ -632,15 +603,19 @@ const PaymentDashboard22 = () => {
         }
 
         closeModal();
+
+        // Refresh data without blocking UI
+        setTimeout(() => {
+          refreshData(false);
+        }, 100);
         
-        // Trigger refresh instead of direct call
-        triggerRefresh();
       } catch (error) {
         toast.dismiss(processingToast);
         toast.error(error.message || "Payment operation failed");
       } finally {
         if (isMounted.current) {
           setIsSubmitting(false);
+          pendingOperationRef.current = false;
         }
       }
     },
@@ -650,8 +625,7 @@ const PaymentDashboard22 = () => {
       validatePaymentForm,
       formatCurrency,
       closeModal,
-      triggerRefresh,
-      dispatch,
+      refreshData,
     ],
   );
 
@@ -719,6 +693,7 @@ const PaymentDashboard22 = () => {
 
       if (!confirmed) return;
 
+      pendingOperationRef.current = true;
       const processingToast = toast.loading("Deleting payment...");
 
       try {
@@ -726,49 +701,54 @@ const PaymentDashboard22 = () => {
         toast.dismiss(processingToast);
         toast.success("Payment deleted successfully");
 
-        // Trigger refresh instead of direct call
-        triggerRefresh();
+        // Refresh data without blocking UI
+        setTimeout(() => {
+          refreshData(false);
+        }, 100);
+        
       } catch (error) {
         toast.dismiss(processingToast);
         toast.error(error.message || "Failed to delete payment");
+      } finally {
+        pendingOperationRef.current = false;
       }
     },
-    [dispatch, formatCurrency, triggerRefresh],
+    [dispatch, formatCurrency, refreshData],
   );
 
-  // Memoized calculations - ensure they recalculate when data changes
+  // Memoized calculations
   const paymentsByPlotId = useMemo(() => {
-    if (!monthlyPayments || !Array.isArray(monthlyPayments)) return {};
-    
-    return monthlyPayments.reduce((acc, payment) => {
-      if (payment?.plot?._id) {
-        acc[payment.plot._id] = payment;
-      }
-      return acc;
-    }, {});
-  }, [monthlyPayments, dataVersion]); // Add dataVersion to force recalculation
+    return (
+      monthlyPayments?.reduce((acc, payment) => {
+        if (payment?.plot?._id) {
+          acc[payment.plot._id] = payment;
+        }
+        return acc;
+      }, {}) || {}
+    );
+  }, [monthlyPayments]);
 
   const plotsByLocation = useMemo(() => {
-    if (!locations || !plots || !Array.isArray(locations) || !Array.isArray(plots)) return {};
+    if (!locations || !plots) return {};
 
     return locations.reduce((acc, location) => {
       const locationPlots =
         plots.filter((plot) => plot.location?._id === location._id) || [];
 
       acc[location._id] = locationPlots.sort((a, b) => {
-        const numA = parseInt(a.plotNumber?.replace(/\D/g, "")) || 0;
-        const numB = parseInt(b.plotNumber?.replace(/\D/g, "")) || 0;
+        const numA = parseInt(a.plotNumber.replace(/\D/g, "")) || 0;
+        const numB = parseInt(b.plotNumber.replace(/\D/g, "")) || 0;
         return numA - numB;
       });
 
       return acc;
     }, {});
-  }, [locations, plots, dataVersion]); // Add dataVersion
+  }, [locations, plots]);
 
   const isLoading =
     paymentsLoading || plotsLoading || locationsLoading || isRefreshing;
 
-  // User components
+  // Optimized User components with memo
   const UserStack = useCallback(({ users }) => {
     const [expanded, setExpanded] = useState(false);
 
@@ -877,7 +857,7 @@ const PaymentDashboard22 = () => {
     );
   }, []);
 
-  // Render modal
+  // Render modal based on type
   const renderModal = () => {
     if (!modalState.isOpen) return null;
 
@@ -926,11 +906,13 @@ const PaymentDashboard22 = () => {
         }}
       >
         <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
+          {/* Modal Header with Plot Details */}
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-gray-800">
               {getModalTitle()}
             </h2>
 
+            {/* Plot Information Card */}
             <div className="mt-3 bg-gray-50 rounded-lg p-3 border border-gray-200">
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
@@ -965,6 +947,7 @@ const PaymentDashboard22 = () => {
               </div>
             </div>
 
+            {/* Payment Summary for Pay Modal */}
             {type === "pay" && paymentSummary && (
               <div
                 className={`mt-3 p-3 rounded-lg border ${
@@ -1024,6 +1007,7 @@ const PaymentDashboard22 = () => {
           </div>
 
           <form onSubmit={submitPayment} noValidate>
+            {/* Expected Amount - Show but disable for 'pay' modal */}
             {(type === "create" || type === "edit") && (
               <div className="mb-4">
                 <label
@@ -1063,7 +1047,9 @@ const PaymentDashboard22 = () => {
               </div>
             )}
 
+            {/* Paid Amount Field - Different for each modal type */}
             {type === "pay" ? (
+              // Pay Modal - Additional Payment Field
               <div className="mb-4">
                 <label
                   className="block text-gray-700 text-sm font-bold mb-2"
@@ -1112,6 +1098,7 @@ const PaymentDashboard22 = () => {
                   </p>
                 )}
 
+                {/* Preview new total */}
                 {formData.additionalPayment &&
                   !isNaN(parseFloat(formData.additionalPayment)) &&
                   payment && (
@@ -1140,6 +1127,7 @@ const PaymentDashboard22 = () => {
                   )}
               </div>
             ) : type === "edit" ? (
+              // Edit Modal - Replace Paid Amount
               <div className="mb-4">
                 <label
                   className="block text-gray-700 text-sm font-bold mb-2"
@@ -1174,6 +1162,7 @@ const PaymentDashboard22 = () => {
                   </p>
                 )}
 
+                {/* Preview completion for edit */}
                 {formData.expectedAmount &&
                   formData.paidAmount &&
                   !isNaN(parseFloat(formData.paidAmount)) && (
@@ -1192,6 +1181,7 @@ const PaymentDashboard22 = () => {
                   )}
               </div>
             ) : (
+              // Create Modal - Initial Paid Amount
               <div className="mb-4">
                 <label
                   className="block text-gray-700 text-sm font-bold mb-2"
@@ -1228,6 +1218,7 @@ const PaymentDashboard22 = () => {
               </div>
             )}
 
+            {/* Due Date */}
             <div className="mb-6">
               <label
                 className="block text-gray-700 text-sm font-bold mb-2"
@@ -1257,6 +1248,7 @@ const PaymentDashboard22 = () => {
               )}
             </div>
 
+            {/* Action Buttons */}
             <div className="flex justify-end space-x-3">
               <button
                 type="button"
@@ -1357,6 +1349,7 @@ const PaymentDashboard22 = () => {
         )}
       </header>
 
+      {/* Month Selector and Actions */}
       <div className="flex flex-col md:flex-row gap-4 mb-6 items-start md:items-end">
         <div className="w-full md:w-auto">
           <label
@@ -1386,6 +1379,7 @@ const PaymentDashboard22 = () => {
         </button>
       </div>
 
+      {/* Summary Section */}
       <div className="mb-6 w-full">
         {summary ? (
           <div className="bg-white shadow rounded-lg p-4 w-full border border-gray-200">
@@ -1433,6 +1427,7 @@ const PaymentDashboard22 = () => {
         )}
       </div>
 
+      {/* Locations and Plots - Scrollable Container */}
       <div className="space-y-4 max-h-[calc(100vh-300px)] overflow-y-auto pr-2 custom-scrollbar">
         {locations?.map((location) => (
           <div
@@ -1476,6 +1471,7 @@ const PaymentDashboard22 = () => {
                 className="p-4 border-t"
               >
                 <div className="overflow-x-auto">
+                  {/* Responsive Table - Stack on mobile, scroll horizontally on larger screens */}
                   <div className="min-w-[800px] md:min-w-full">
                     <table className="w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
@@ -1688,8 +1684,10 @@ const PaymentDashboard22 = () => {
         ))}
       </div>
 
+      {/* Modal */}
       {renderModal()}
 
+      {/* Add animation and scrollbar styles */}
       <style jsx>{`
         @keyframes fadeIn {
           from {
@@ -1723,22 +1721,25 @@ const PaymentDashboard22 = () => {
           background: #555;
         }
 
+        /* For Firefox */
         .custom-scrollbar {
           scrollbar-width: thin;
           scrollbar-color: #888 #f1f1f1;
         }
 
+        /* Responsive table styles */
         @media (max-width: 768px) {
           .min-w-\\[800px\\] {
             min-width: 100%;
           }
 
+          /* Stack table cells on mobile */
           table {
             display: block;
           }
 
           thead {
-            display: none;
+            display: none; /* Hide headers on mobile */
           }
 
           tbody {
@@ -1771,6 +1772,7 @@ const PaymentDashboard22 = () => {
             margin-bottom: 2px;
           }
 
+          /* Remove table row dividers */
           .divide-y > :not([hidden]) ~ :not([hidden]) {
             border-top-width: 0;
           }
